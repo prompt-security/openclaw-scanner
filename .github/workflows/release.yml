@@ -1,0 +1,60 @@
+name: Build Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Build wheel
+        run: uv build
+
+      - name: Upload wheel to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.whl
+
+  build-executables:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-arm64
+          - os: macos-15
+            name: macos-x64
+          - os: ubuntu-latest
+            name: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build executable
+        run: |
+          pyinstaller --onefile --name openclaw-scanner-${{ matrix.name }} \
+            --hidden-import platform_compat.darwin \
+            --hidden-import platform_compat.linux \
+            --hidden-import platform_compat.common \
+            openclaw_usage.py
+
+      - name: Upload executable to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/openclaw-scanner-${{ matrix.name }}*
