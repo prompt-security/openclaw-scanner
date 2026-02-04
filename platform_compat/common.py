@@ -2,6 +2,7 @@
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,7 +46,6 @@ def extract_apps_from_config_folders(command: str) -> List[str]:
     Returns:
         List of app names found (e.g., ['Obsidian', 'Vscode'])
     """
-    import re
     apps: List[str] = []
 
     # Pattern: find .foldername in command (e.g., /.obsidian or .obsidian/)
