@@ -6,8 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from .base import PlatformCompat, ProcessInfo, ToolPaths, UserInfo
 from structures import CliCommand
+
+from .base import PlatformCompat, ProcessInfo, ToolPaths, UserInfo
 from .common import (
     run_cmd, get_user_id, get_group_id,
     get_groups, get_uname, find_processes as _find_processes,
@@ -108,7 +109,7 @@ class DarwinCompat(PlatformCompat):
 
     def find_openclaw_binary(self, cli_name: str = "openclaw") -> Optional[CliCommand]:
         """Find OpenClaw CLI binary (macOS-specific paths).
-        
+
         Adds macOS-specific locations:
             - /Applications/OpenClaw.app/Contents/MacOS/openclaw (bundled app)
             - /opt/homebrew/bin/openclaw (Homebrew on Apple Silicon)
@@ -123,11 +124,11 @@ class DarwinCompat(PlatformCompat):
             # Homebrew on Intel
             Path("/usr/local/bin") / cli_name,
         ]
-        
+
         # Nix: try to find via nix profile or run wrapper
         # nix-openclaw puts it in the profile
         nix_profile_bin = Path.home() / ".nix-profile" / "bin" / cli_name
         if nix_profile_bin.exists():
             macos_paths.insert(0, nix_profile_bin)
-        
+
         return find_openclaw_binary_common(cli_name, extra_paths=macos_paths)

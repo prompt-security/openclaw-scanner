@@ -3,10 +3,28 @@
 All TypedDicts used across installation_tracker.py and platform_compat/.
 """
 
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
 # CLI command as list of string parts (ex. ["/usr/bin/openclaw"] or ["npx", "openclaw"])
 CliCommand = List[str]
+
+
+# =============================================================================
+# Variant Detection
+# =============================================================================
+
+# Supported product names (newest → oldest)
+CLAWDBOT_VARIANT_NAMES = ["openclaw", "moltbot", "clawdbot"]
+
+
+@dataclass
+class ClawdbotInstallInfo:
+    """Information about a detected OpenClaw/Clawdbot installation."""
+    bot_variant: str                    # "openclaw" or "clawdbot"
+    bot_cli_cmd: CliCommand             # Command to run bot CLI: ["/usr/bin/openclaw"]
+    bot_config_dir: Path                # Bot config directory: ~/.openclaw/
 
 
 # =============================================================================

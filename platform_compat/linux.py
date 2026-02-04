@@ -6,8 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from .base import PlatformCompat, ProcessInfo, ToolPaths, UserInfo
 from structures import CliCommand
+
+from .base import PlatformCompat, ProcessInfo, ToolPaths, UserInfo
 from .common import (
     run_cmd, get_user_id, get_group_id,
     get_groups, get_uname, find_processes as _find_processes,
@@ -117,14 +118,14 @@ class LinuxCompat(PlatformCompat):
 
     def find_openclaw_binary(self, cli_name: str = "openclaw") -> Optional[CliCommand]:
         """Find OpenClaw CLI binary (Linux-specific paths).
-        
+
         Adds Linux-specific locations:
             - /snap/bin/openclaw (Snap packages, if ever available)
             - ~/.local/bin/openclaw (pip/pipx style user installs)
             - Nix profile paths
         """
         home = Path.home()
-        
+
         # Linux-specific paths to check
         linux_paths = [
             # User local bin (pip/pipx style)
@@ -136,5 +137,5 @@ class LinuxCompat(PlatformCompat):
             # NixOS system profile
             Path("/run/current-system/sw/bin") / cli_name,
         ]
-        
+
         return find_openclaw_binary_common(cli_name, extra_paths=linux_paths)
