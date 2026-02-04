@@ -12,6 +12,7 @@ from .common import (
     run_cmd, get_user_id, get_group_id,
     get_groups, get_uname, find_processes as _find_processes,
     get_base_tool_paths, find_openclaw_binary_common,
+    extract_apps_from_config_folders, dedupe_apps,
 )
 
 
@@ -84,21 +85,35 @@ class LinuxCompat(PlatformCompat):
         return f"{value} {unit_map.get(unit, 'hours')} ago"
 
     def extract_app_names(self, command: str) -> List[str]:
-        """Extract app names from a command string.
+        """Extract app names from a command string (Linux-specific patterns).
 
-        Stub implementation - returns empty list.
-        
-        On native Linux, app detection patterns differ significantly from macOS.
-        On WSL2, detecting Windows apps would require different approaches.
-        
         Args:
             command: The command string to parse
 
         Returns:
-            Empty list (not implemented for Linux/WSL2)
+            List of app names found in the command
         """
-        # TODO: Implement if needed for native Linux or WSL2 Windows app detection
-        return []
+        apps: List[str] = []
+
+        # Pattern: xdg-open (generic Linux file/URL opener)
+        # xdg-open doesn't specify app, so we skip it
+
+        # Pattern: gtk-launch appname
+        gtk_launch_pattern = r'gtk-launch\s+([^\s;|&]+)'
+        apps.extend(re.findall(gtk_launch_pattern, command, re.IGNORECASE))
+
+        # Pattern: snap run appname
+        snap_pattern = r'snap\s+run\s+([^\s;|&]+)'
+        apps.extend(re.findall(snap_pattern, command, re.IGNORECASE))
+
+        # Pattern: flatpak run com.app.Name
+        flatpak_pattern = r'flatpak\s+run\s+([^\s;|&]+)'
+        apps.extend(re.findall(flatpak_pattern, command, re.IGNORECASE))
+
+        # Generic: config folder references (.obsidian, .vscode, etc.)
+        apps.extend(extract_apps_from_config_folders(command))
+
+        return dedupe_apps(apps)
 
     def find_openclaw_binary(self, cli_name: str = "openclaw") -> Optional[CliCommand]:
         """Find OpenClaw CLI binary (Linux-specific paths).

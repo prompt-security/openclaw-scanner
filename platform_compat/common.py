@@ -2,12 +2,24 @@
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
 
 from structures import CliCommand, ProcessInfo, SystemInfo, ToolPaths
+
+
+# Folders that aren't apps - skip these
+SKIP_CONFIG_FOLDERS = {
+    'git', 'ssh', 'env', 'tmp', 'cache', 'config', 'local', 'log', 'bin',
+    'npm', 'yarn', 'nvm', 'pyenv', 'rbenv', 'goenv', 'jenv', 'sdkman',
+    'bundle', 'gem', 'pip', 'poetry', 'venv', 'virtualenv', 'conda',
+    'aws', 'azure', 'gcloud', 'kube', 'helm', 'terraform',
+    'bash', 'zsh', 'fish', 'profile', 'bashrc', 'zshrc',
+    'gnupg', 'password-store', 'netrc', 'curlrc', 'wgetrc',
+}
 
 
 def dedupe_apps(apps: List[str]) -> List[str]:
@@ -20,6 +32,31 @@ def dedupe_apps(apps: List[str]) -> List[str]:
             seen.add(app_lower)
             unique_apps.append(app)
     return unique_apps
+
+
+def extract_apps_from_config_folders(command: str) -> List[str]:
+    """Extract app names from config folder references in a command.
+
+    Detects patterns like .obsidian, .vscode, .cursor etc. and converts
+    them to app names (capitalized).
+
+    Args:
+        command: The command string to parse
+
+    Returns:
+        List of app names found (e.g., ['Obsidian', 'Vscode'])
+    """
+    apps: List[str] = []
+
+    # Pattern: find .foldername in command (e.g., /.obsidian or .obsidian/)
+    # Matches: /.appname, .appname/, ".appname", '.appname'
+    config_folder_pattern = r'[/\s"\']\.([a-zA-Z][a-zA-Z0-9_-]{2,20})(?:[/\s"\']|$)'
+
+    for match in re.findall(config_folder_pattern, command):
+        if match.lower() not in SKIP_CONFIG_FOLDERS:
+            apps.append(match.capitalize())
+
+    return apps
 
 
 def get_system_info() -> SystemInfo:
