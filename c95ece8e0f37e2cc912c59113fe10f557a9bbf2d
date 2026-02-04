@@ -1,0 +1,23 @@
+.github/workflows/release.yml
+  d8d8ccd313a16938 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "c95ece8e0f37e2cc912c59113fe10f557a9bbf2d",
+  "prompts": {
+    "d8d8ccd313a16938": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "1961399d-b05d-49d1-b2e2-b1c11d5f9db7",
+        "model": "copilot/claude-opus-4.5"
+      },
+      "human_author": "Vitaly Neyman <vitaly@prompt.security>",
+      "messages": [],
+      "total_additions": 97,
+      "total_deletions": 75,
+      "accepted_lines": 95,
+      "overriden_lines": 1
+    }
+  }
+}
