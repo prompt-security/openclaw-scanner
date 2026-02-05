@@ -18,6 +18,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, TypedDict
 
+try:
+    import certifi
+    CERTIFI_AVAILABLE = True
+except ImportError:
+    certifi = None
+    CERTIFI_AVAILABLE = False
+
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
 from platform_compat import compat as _compat
 from structures import CliCommand, CLAWDBOT_VARIANT_NAMES
@@ -37,12 +44,9 @@ def create_ssl_context() -> ssl.SSLContext:
         Configured SSL context
     """
     # Try certifi first (best cross-platform solution)
-    try:
-        import certifi
+    if CERTIFI_AVAILABLE:
         ctx = ssl.create_default_context(cafile=certifi.where())
         return ctx
-    except ImportError:
-        pass
 
     # macOS-specific: try system certificate locations
     macos_cert_paths = [
