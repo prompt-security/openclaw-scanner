@@ -340,6 +340,75 @@ def get_models_status(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any
         return {"raw_output": stdout.strip(), "passed": True}
 
 
+def get_agent_config(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
+    """Run openclaw config get agents to get agent concurrency settings.
+
+    Args:
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
+
+    Returns:
+        Dict with max_concurrent and autonomous_mode flag
+    """
+    try:
+        stdout = _run_bot_cli(bot_cli_cmd, "config", "get", "agents", "--json")
+    except CliExecError as e:
+        return {"error": str(e), "max_concurrent": None, "autonomous_mode": None}
+
+    try:
+        data = json.loads(stdout)
+        max_concurrent = data.get("defaults", {}).get("maxConcurrent", 1)
+        # maxConcurrent > 1 indicates autonomous/parallel execution
+        return {
+            "max_concurrent": max_concurrent,
+            "autonomous_mode": max_concurrent > 1,
+            "subagent_max_concurrent": data.get("defaults", {}).get("subagents", {}).get("maxConcurrent"),
+            "workspace": data.get("defaults", {}).get("workspace"),
+        }
+    except json.JSONDecodeError:
+        return {"raw_output": stdout.strip(), "autonomous_mode": None}
+
+
+def get_exec_approvals(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
+    """Run openclaw approvals get to get execution permissions/approvals.
+
+    Args:
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
+
+    Returns:
+        Dict with approvals and permissions info
+    """
+    try:
+        stdout = _run_bot_cli(bot_cli_cmd, "approvals", "get", "--json")
+    except CliExecError as e:
+        return {"error": str(e), "permissions": []}
+
+    try:
+        data = json.loads(stdout)
+        file_data = data.get("file", {})
+        permissions: List[str] = []
+
+        # Extract socket permissions
+        for socket_name in file_data.get("socket", {}).keys():
+            permissions.append(f"socket:{socket_name}")
+
+        # Extract default permissions
+        for perm_name in file_data.get("defaults", {}).keys():
+            permissions.append(f"default:{perm_name}")
+
+        # Extract agent-specific permissions
+        for agent_name in file_data.get("agents", {}).keys():
+            permissions.append(f"agent:{agent_name}")
+
+        return {
+            "approvals_path": data.get("path"),
+            "approvals_exist": data.get("exists", False),
+            "permissions": permissions,
+            "permissions_count": len(permissions),
+        }
+    except json.JSONDecodeError:
+        return {"raw_output": stdout.strip(), "permissions": []}
+
+
 def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     """Scan session logs and extract tools and apps used.
 
@@ -590,6 +659,8 @@ def main():
     channels_result = get_channels_list(bot_cli_cmd)  # external integrations
     nodes_result = get_nodes_list(bot_cli_cmd)  # remote connections
     models_result = get_models_status(bot_cli_cmd)  # auth posture
+    agent_config = get_agent_config(bot_cli_cmd)  # autonomous mode
+    exec_approvals = get_exec_approvals(bot_cli_cmd)  # permissions
 
     # Limit tool calls in output
     logs_result["tool_calls"] = logs_result["tool_calls"][:args.limit]
@@ -618,7 +689,13 @@ def main():
         "channels_count": channels_result.get("count", 0),
         "nodes": nodes_result.get("nodes", []),
         "nodes_count": nodes_result.get("count", 0),
-        "models_status": models_result
+        "models_status": models_result,
+        # Agent config (autonomous mode)
+        "autonomous_mode": agent_config.get("autonomous_mode"),
+        "max_concurrent": agent_config.get("max_concurrent"),
+        # Exec approvals (permissions)
+        "permissions": exec_approvals.get("permissions", []),
+        "permissions_count": exec_approvals.get("permissions_count", 0),
     }
 
     # Build output based on --full flag
@@ -639,7 +716,9 @@ def main():
             "active_plugins": plugins_result,
             "channels": channels_result,
             "nodes": nodes_result,
-            "models_status": models_result
+            "models_status": models_result,
+            "agent_config": agent_config,
+            "exec_approvals": exec_approvals,
         }
     else:
         result = {
