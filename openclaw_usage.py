@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 OpenClaw Usage Scanner
-Scans .openclaw folder, active skills, and session logs for tools/apps usage.
+Scans bot data directory, detects active skills, and session logs for tools/apps usage.
 Outputs JSON with all collected data.
 """
 
+import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.request
@@ -14,23 +16,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, TypedDict
 
-from platform_compat.common import get_system_info
+from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
 from platform_compat import compat as _compat
-from structures import CliCommand
+from structures import CliCommand, CLAWDBOT_VARIANT_NAMES
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
 
 
 class CliExecError(Exception):
     """Raised when CLI command execution fails."""
-    pass
 
 
-def _run_cli(cli_command: Optional[CliCommand], *args: str, timeout: int = 30) -> str:
-    """Run OpenClaw CLI command and return stdout on success.
+def _run_bot_cli(bot_cli_cmd: Optional[CliCommand], *args: str, timeout: int = 30) -> str:
+    """Run bot CLI command and return stdout on success.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
         *args: Command arguments (e.g., "nodes", "list")
         timeout: Command timeout in seconds
 
@@ -40,14 +41,26 @@ def _run_cli(cli_command: Optional[CliCommand], *args: str, timeout: int = 30) -
     Raises:
         CliExecError: On any failure (not found, timeout, non-zero exit, etc.)
     """
-    # Auto-detect CLI if not provided
-    if cli_command is None:
-        cli_command = _compat.find_openclaw_binary("openclaw")
-        if cli_command is None:
-            raise CliExecError("CLI not found")
+    # Auto-detect bot CLI if not provided
+    if bot_cli_cmd is None:
+        install_info = detect_clawd_install()
+        if install_info is None:
+            raise CliExecError("Bot CLI not found")
+        bot_cli_cmd = install_info.bot_cli_cmd
+
+    # Build environment with node in PATH if CLI is from nvm
+    # The CLI binary uses "#!/usr/bin/env node" which needs node in PATH
+    env = os.environ.copy()
+    cli_path = Path(bot_cli_cmd[0]) if bot_cli_cmd else None
+    if cli_path and ".nvm" in str(cli_path):
+        # Add the bin directory containing node to PATH
+        nvm_bin_dir = str(cli_path.parent)
+        current_path = env.get("PATH", "")
+        if nvm_bin_dir not in current_path:
+            env["PATH"] = f"{nvm_bin_dir}:{current_path}"
 
     try:
-        result = subprocess.run(cli_command + list(args), capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(bot_cli_cmd + list(args), capture_output=True, text=True, timeout=timeout, env=env)
 
         if result.returncode != 0:
             raise CliExecError(f"Command failed: {result.stderr.strip()}")
@@ -57,11 +70,29 @@ def _run_cli(cli_command: Optional[CliCommand], *args: str, timeout: int = 30) -
     except subprocess.TimeoutExpired as e:
         raise CliExecError("Command timed out") from e
     except FileNotFoundError as e:
-        raise CliExecError(f"CLI not found: {' '.join(cli_command)}") from e
+        raise CliExecError(f"Bot CLI not found: {' '.join(bot_cli_cmd)}") from e
     except Exception as e:
         if isinstance(e, CliExecError):
             raise
         raise CliExecError(str(e)) from e
+
+
+def get_bot_version(bot_cli_cmd: Optional[CliCommand] = None) -> Optional[str]:
+    """Get bot version via --version flag.
+
+    Args:
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
+
+    Returns:
+        Version string (e.g., "2026.1.24") or None on failure
+    """
+    try:
+        stdout = _run_bot_cli(bot_cli_cmd, "--version", timeout=10)
+        # Output is typically just the version number, possibly with prefix
+        version = stdout.strip().split()[-1]  # Take last word (handles "v2026.1.24" or "2026.1.24")
+        return version
+    except CliExecError:
+        return None
 
 
 class SkillsResult(TypedDict, total=False):
@@ -73,31 +104,18 @@ class SkillsResult(TypedDict, total=False):
     cli_searched: bool   # Only when auto-detection was attempted
 
 
-def find_openclaw_folder() -> Optional[Path]:
-    """Find the .openclaw folder in the user's home directory.
 
-    Returns:
-        Path to .openclaw folder or None if not found
-    """
-    openclaw_path = Path.home() / ".openclaw"
-
-    if openclaw_path.exists() and openclaw_path.is_dir():
-        return openclaw_path
-
-    return None
-
-
-def get_active_skills(cli_command: Optional[CliCommand] = None) -> SkillsResult:
+def get_active_skills(bot_cli_cmd: Optional[CliCommand] = None) -> SkillsResult:
     """Run openclaw skills list and filter only active skills.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
 
     Returns:
         SkillsResult with active_skills list and counts (or error on failure)
     """
     try:
-        stdout = _run_cli(cli_command, "skills", "list", "--json")
+        stdout = _run_bot_cli(bot_cli_cmd, "skills", "list", "--json")
     except CliExecError as e:
         return {"error": str(e), "active_skills": [], "count": 0}
 
@@ -121,17 +139,17 @@ def get_active_skills(cli_command: Optional[CliCommand] = None) -> SkillsResult:
     }
 
 
-def get_cron_jobs(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_cron_jobs(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw cron list to get scheduled cron jobs.
 
     Args:
-        cli_command: CLI base command as list. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list. If None, auto-detects.
 
     Returns:
         Dict with cron jobs list and count
     """
     try:
-        stdout = _run_cli(cli_command, "cron", "list")
+        stdout = _run_bot_cli(bot_cli_cmd, "cron", "list")
     except CliExecError as e:
         return {"error": str(e), "cron_jobs": [], "count": 0}
 
@@ -156,17 +174,17 @@ def get_cron_jobs(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
         }
 
 
-def get_security_audit(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_security_audit(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw security audit to check for security issues.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
 
     Returns:
         Dict with security audit results
     """
     try:
-        stdout = _run_cli(cli_command, "security", "audit", timeout=60)
+        stdout = _run_bot_cli(bot_cli_cmd, "security", "audit", timeout=60)
         passed = True
     except CliExecError as e:
         # Security audit may return non-zero on findings - that's not an error
@@ -192,17 +210,17 @@ def get_security_audit(cli_command: Optional[CliCommand] = None) -> Dict[str, An
         return {"raw_output": output or None, "passed": passed}
 
 
-def get_plugins_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_plugins_list(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw plugins list to get active plugins only.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
 
     Returns:
         Dict with active plugins list and count
     """
     try:
-        stdout = _run_cli(cli_command, "plugins", "list", "--json")
+        stdout = _run_bot_cli(bot_cli_cmd, "plugins", "list", "--json")
     except CliExecError as e:
         return {"error": str(e), "active_plugins": [], "count": 0}
 
@@ -241,16 +259,16 @@ def get_plugins_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]
         }
 
 
-def get_channels_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_channels_list(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw channels list to get configured channels/integrations.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
     Returns:
         Dict with channels list and count
     """
     try:
-        stdout = _run_cli(cli_command, "channels", "list")
+        stdout = _run_bot_cli(bot_cli_cmd, "channels", "list")
     except CliExecError as e:
         return {"error": str(e), "channels": [], "count": 0}
 
@@ -268,17 +286,17 @@ def get_channels_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any
         }
 
 
-def get_nodes_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_nodes_list(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw nodes list to get connected/paired nodes.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
 
     Returns:
         Dict with nodes list and count
     """
     try:
-        stdout = _run_cli(cli_command, "nodes", "list")
+        stdout = _run_bot_cli(bot_cli_cmd, "nodes", "list")
     except CliExecError as e:
         return {"error": str(e), "nodes": [], "count": 0}
 
@@ -296,16 +314,16 @@ def get_nodes_list(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
         }
 
 
-def get_models_status(cli_command: Optional[CliCommand] = None) -> Dict[str, Any]:
+def get_models_status(bot_cli_cmd: Optional[CliCommand] = None) -> Dict[str, Any]:
     """Run openclaw models status to get authentication and model status.
 
     Args:
-        cli_command: CLI base command as list of string parts. If None, auto-detects.
+        bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
     Returns:
         Dict with models status including auth info
     """
     try:
-        stdout = _run_cli(cli_command, "models", "status")
+        stdout = _run_bot_cli(bot_cli_cmd, "models", "status")
     except CliExecError as e:
         return {"error": str(e)}
 
@@ -315,16 +333,16 @@ def get_models_status(cli_command: Optional[CliCommand] = None) -> Dict[str, Any
         return {"raw_output": stdout.strip(), "passed": True}
 
 
-def scan_session_logs(openclaw_path: Path) -> Dict[str, Any]:
+def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     """Scan session logs and extract tools and apps used.
 
     Args:
-        openclaw_path: Path to the .openclaw folder
+        bot_config_dir: Path to the bot config folder (e.g., ~/.openclaw)
 
     Returns:
         Dict with tool calls, usage summary, and apps used
     """
-    sessions_dir = openclaw_path / "agents" / "main" / "sessions"
+    sessions_dir = bot_config_dir / "agents" / "main" / "sessions"
 
     if not sessions_dir.exists():
         return {
@@ -336,12 +354,12 @@ def scan_session_logs(openclaw_path: Path) -> Dict[str, Any]:
 
     tool_calls = []
 
-    # Find all session .jsonl files
-    session_files = [f for f in sessions_dir.glob("*.jsonl") if f.name != "sessions.json"]
+    # Find all session .jsonl files (sorted for deterministic processing)
+    session_files = sorted([f for f in sessions_dir.glob("*.jsonl") if f.name != "sessions.json"])
 
     for session_file in session_files:
         try:
-            with open(session_file, "r") as f:
+            with open(session_file, "r", encoding="utf-8") as f:
                 for line in f:
                     # Quick check before parsing JSON
                     if "toolCall" not in line:
@@ -422,6 +440,9 @@ def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
         "User-Agent": "OpenClaw-Scanner/1.0"
     }
 
+    response = None
+    response_body = None
+
     try:
         req = urllib.request.Request(
             API_ENDPOINT,
@@ -454,7 +475,7 @@ def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         return {
             "success": True,
-            "status_code": response.status,
+            "status_code": response.status if response is not None else 0,
             "response": response_body
         }
     except Exception as e:
@@ -465,8 +486,6 @@ def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="Scan OpenClaw usage: active skills, tools, and apps. Outputs JSON."
     )
@@ -480,7 +499,7 @@ def main():
         "--cli",
         type=str,
         default=None,
-        help="CLI command/path to use. If not provided, auto-detects (openclaw, moltbot, clawdbot)"
+        help="Bot CLI command/path. If not provided, auto-detects (openclaw, clawdbot)"
     )
     parser.add_argument(
         "--compact",
@@ -501,30 +520,55 @@ def main():
 
     args = parser.parse_args()
 
-    openclaw_path = find_openclaw_folder()
-    if openclaw_path is None:
-        result = {
-            "error": ".openclaw folder not found",
-            "expected_path": str(Path.home() / ".openclaw"),
-            "openclaw_path": None,
-            "active_skills": None,
-            "session_analysis": None
-        }
+    # Detect install: either via bot CLI command specified on cmdline, or using auto-detect
+    if args.cli:
+        install_info = build_install_info_from_cli(args.cli.split())
+    else:
+        install_info = detect_clawd_install()
+
+    if install_info is None:
+        # Detect failed - figure out why for better error message
+        home = Path.home()
+        checked_variants = CLAWDBOT_VARIANT_NAMES
+        checked_config_paths = [str(home / f".{v}") for v in checked_variants]
+
+        # Check if CLI exists but config dir doesn't (installed but never used)
+        cli_only = find_bot_cli_only()
+        if cli_only:
+            variant_name, cli_cmd = cli_only
+            version = get_bot_version(cli_cmd)
+            result = {
+                "error": "Bot installed but never used (no config found)",
+                "bot_variant": variant_name,
+                "bot_version": version,
+                "bot_cli_cmd": " ".join(cli_cmd),
+                "bot_config_dir": str(home / f".{variant_name}"),
+            }
+        else:
+            result = {
+                "error": "No bot installed",
+                "checked_variants": checked_variants,
+                "checked_config_paths": checked_config_paths,
+            }
         print(json.dumps(result, indent=None if args.compact else 2))
         sys.exit(1)
 
+    bot_cli_cmd = install_info.bot_cli_cmd
+    bot_cli_str = " ".join(install_info.bot_cli_cmd)
+    bot_config_dir = install_info.bot_config_dir
+    bot_variant = install_info.bot_variant
+    bot_version = get_bot_version(bot_cli_cmd)
+
     # Collect scan data
-    cli = args.cli.split() if args.cli else _compat.find_openclaw_binary("openclaw")
-    cli_str = " ".join(cli) if cli else None
-    skills_result = get_active_skills(cli)
-    logs_result = scan_session_logs(openclaw_path)
+    skills_result = get_active_skills(bot_cli_cmd)
+    logs_result = scan_session_logs(bot_config_dir)
     system_info = get_system_info()
-    cron_result = get_cron_jobs(cli)
-    security_result = get_security_audit(cli)  # CISO-critical
-    plugins_result = get_plugins_list(cli)  # attack surface
-    channels_result = get_channels_list(cli)  # external integrations
-    nodes_result = get_nodes_list(cli)  # remote connections
-    models_result = get_models_status(cli)  # auth posture
+    cron_result = get_cron_jobs(bot_cli_cmd)
+    security_result = get_security_audit(bot_cli_cmd)  # CISO-critical
+    plugins_result = get_plugins_list(bot_cli_cmd)  # attack surface
+    channels_result = get_channels_list(bot_cli_cmd)  # external integrations
+    nodes_result = get_nodes_list(bot_cli_cmd)  # remote connections
+    models_result = get_models_status(bot_cli_cmd)  # auth posture
 
     # Limit tool calls in output
     logs_result["tool_calls"] = logs_result["tool_calls"][:args.limit]
@@ -560,9 +604,11 @@ def main():
     if args.full:
         result = {
             "scan_timestamp": datetime.now().isoformat(),
-            "cli_command": cli_str,
+            "bot_cli_cmd": bot_cli_str,
+            "bot_variant": bot_variant,
+            "bot_version": bot_version,
             "system_info": system_info,
-            "openclaw_path": str(openclaw_path),
+            "bot_config_dir": str(bot_config_dir),
             "summary": summary,
             "active_skills": skills_result,
             "session_analysis": logs_result,
@@ -577,7 +623,10 @@ def main():
     else:
         result = {
             "scan_timestamp": datetime.now().isoformat(),
-            "cli_command": cli_str,
+            "bot_cli_cmd": bot_cli_str,
+            "bot_variant": bot_variant,
+            "bot_version": bot_version,
+            "bot_config_dir": str(bot_config_dir),
             "system_info": system_info,
             "summary": summary
         }

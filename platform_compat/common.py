@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from structures import CliCommand, ProcessInfo, SystemInfo, ToolPaths
+from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
 
 
 # Folders that aren't apps - skip these
@@ -115,7 +115,7 @@ def get_uname() -> Optional[str]:
 
 def find_processes(process_names: List[str]) -> List[ProcessInfo]:
     """Find processes matching any of the given names.
-    
+
     Works identically on macOS and Linux (ps aux format).
     """
     processes: List[ProcessInfo] = []
@@ -167,29 +167,31 @@ def get_base_tool_paths(tool_name: str) -> ToolPaths:
     }
 
 
-def find_openclaw_binary_common(cli_name: str = "openclaw", 
-                                extra_paths: Optional[List[Path]] = None) -> Optional[CliCommand]:
-    """Find the OpenClaw CLI binary - common implementation.
-    
-    Platform-specific implementations call this with their own extra_paths.
-    
+def _find_clawdbot_cli_binary(cli_name: str,
+ extra_paths: Optional[List[Path]] = None) -> Optional[CliCommand]:
+    """Find a CLI binary by name - internal helper.
+
+    Args:
+        cli_name: Binary name to search for (e.g., "openclaw", "clawdbot")
+        extra_paths: Platform-specific paths to check
+
     Returns:
-        Command as list (e.g. ["/usr/bin/openclaw"] or ["npx", "openclaw"]), or None
+        Command as list (e.g. ["/usr/bin/openclaw"]), or None
     """
     home = Path.home()
-    
+
     # 1. Check PATH first (works if user configured correctly)
     path_result = shutil.which(cli_name)
     if path_result:
         return [path_result]
-    
+
     # 2. npm global bin (most common install method)
     npm_prefix = run_cmd(["npm", "prefix", "-g"])
     if npm_prefix:
         npm_path = Path(npm_prefix) / "bin" / cli_name
         if npm_path.exists():
             return [str(npm_path)]
-    
+
     # 3. pnpm global root (alternative package manager)
     pnpm_root = run_cmd(["pnpm", "root", "-g"])
     if pnpm_root:
@@ -197,7 +199,7 @@ def find_openclaw_binary_common(cli_name: str = "openclaw",
         pnpm_path = Path(pnpm_root).parent / "bin" / cli_name
         if pnpm_path.exists():
             return [str(pnpm_path)]
-    
+
     # 4. Git source install (common dev setup)
     #    Default git dir per installer docs: ~/openclaw
     git_paths = [
@@ -207,26 +209,98 @@ def find_openclaw_binary_common(cli_name: str = "openclaw",
     for p in git_paths:
         if p.exists():
             return [str(p)]
-    
+
     # 5. Platform-specific paths (passed by caller)
     if extra_paths:
         for p in extra_paths:
             if p.exists():
                 return [str(p)]
-    
+
     # 6. Common fallback locations
     fallbacks = [
         home / ".npm-global" / "bin" / cli_name,
         Path("/usr/local/bin") / cli_name,
     ]
+    # Add nvm paths - check all installed node versions
+    # Sort by version (newest first) for deterministic, predictable behavior
+    nvm_dir = home / ".nvm" / "versions" / "node"
+    if nvm_dir.exists():
+        node_versions = sorted(nvm_dir.iterdir(), key=lambda p: p.name, reverse=True)
+        for node_version in node_versions:
+            if node_version.is_dir():
+                fallbacks.append(node_version / "bin" / cli_name)
+
     for p in fallbacks:
         if p.exists():
             return [str(p)]
-    
-    # 7. npx fallback - verify package actually exists
-    if shutil.which("npx"):
-        result = run_cmd(["npx", cli_name, "--version"])
-        if result:
-            return ["npx", cli_name]
-    
+
     return None
+
+
+def find_bot_cli_only(extra_paths_fn=None) -> Optional[tuple[str, CliCommand]]:
+    """Find bot CLI binary only (ignores config dir).
+
+    Used for error reporting to distinguish 'not installed' vs 'installed but never used'.
+
+    Returns:
+        Tuple of (variant_name, cli_command) or None if no CLI found
+    """
+    for name in CLAWDBOT_VARIANT_NAMES:
+        extra_paths = extra_paths_fn(name) if extra_paths_fn else None
+        bot_cli_cmd = _find_clawdbot_cli_binary(name, extra_paths)
+        if bot_cli_cmd:
+            return (name, bot_cli_cmd)
+    return None
+
+
+def detect_clawd_install(extra_paths_fn=None) -> Optional[ClawdbotInstallInfo]:
+    """Auto-detect installed OpenClaw/Clawdbot.
+
+    Strategy: CLI-first with newest-to-oldest priority.
+    Tries: openclaw → clawdbot
+
+    Args:
+        extra_paths_fn: Optional callable(cli_name) -> List[Path] for platform-specific paths
+
+    Returns:
+        ClawdbotInstallInfo or None if not found
+    """
+    home = Path.home()
+    for name in CLAWDBOT_VARIANT_NAMES:
+        extra_paths = extra_paths_fn(name) if extra_paths_fn else None
+        bot_cli_cmd = _find_clawdbot_cli_binary(name, extra_paths)
+        bot_config_dir = home / f".{name}"
+
+        # Both CLI and config dir must exist for valid detection
+        if bot_cli_cmd and bot_config_dir.exists():
+            return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir)
+
+    return None
+
+
+def build_install_info_from_cli(bot_cli_cmd: CliCommand) -> Optional[ClawdbotInstallInfo]:
+    """Build ClawdbotInstallInfo from explicit bot CLI command (e.g., from --cli arg).
+
+    Infers product name from the command. If unrecognized, defaults to "openclaw".
+    Returns None if bot config dir doesn't exist.
+    """
+    cmd_str = " ".join(bot_cli_cmd).lower()
+
+    name = "openclaw"  # default
+    for n in CLAWDBOT_VARIANT_NAMES:
+        if n in cmd_str:
+            name = n
+            break
+
+    bot_config_dir = Path.home() / f".{name}"
+    if not bot_config_dir.exists():
+        return None
+
+    return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir)
+
+
+# Legacy alias for backward compatibility with platform_compat/{linux,darwin}.py
+def find_openclaw_binary_common(cli_name: str = "openclaw",
+                                extra_paths: Optional[List[Path]] = None) -> Optional[CliCommand]:
+    """Legacy wrapper - use detect_install() instead."""
+    return _find_clawdbot_cli_binary(cli_name, extra_paths)
