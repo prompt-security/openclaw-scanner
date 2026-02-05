@@ -6,8 +6,10 @@ Outputs JSON with all collected data.
 """
 
 import argparse
+import certifi
 import json
 import os
+import ssl
 import subprocess
 import sys
 import urllib.request
@@ -21,6 +23,11 @@ from platform_compat import compat as _compat
 from structures import CliCommand, CLAWDBOT_VARIANT_NAMES
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
+
+
+def create_ssl_context() -> ssl.SSLContext:
+    """Create SSL context using certifi certificates."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class CliExecError(Exception):
@@ -421,12 +428,13 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     }
 
 
-def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True) -> Dict[str, Any]:
     """Send scan report to the API endpoint.
 
     Args:
         report_data: The scan report to send
         api_key: API key for authorization
+        verify_ssl: Whether to verify SSL certificates (default True)
 
     Returns:
         Dict with success status and response or error message
@@ -443,6 +451,14 @@ def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     response = None
     response_body = None
 
+    # Set up SSL context
+    if verify_ssl:
+        ssl_context = create_ssl_context()
+    else:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
     try:
         req = urllib.request.Request(
             API_ENDPOINT,
@@ -451,7 +467,7 @@ def send_report(report_data: Dict[str, Any], api_key: str) -> Dict[str, Any]:
             method="POST"
         )
 
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=30, context=ssl_context) as response:
             response_body = response.read().decode("utf-8")
             return {
                 "success": True,
@@ -516,6 +532,11 @@ def main():
         type=int,
         default=50,
         help="Limit number of recent tool calls to include in full output (default: 50)"
+    )
+    parser.add_argument(
+        "--no-ssl-verify",
+        action="store_true",
+        help="Disable SSL certificate verification (use only if behind a corporate proxy)"
     )
 
     args = parser.parse_args()
@@ -633,7 +654,7 @@ def main():
 
     # Send report to API if api-key is provided
     if args.api_key:
-        api_result = send_report(result, args.api_key)
+        api_result = send_report(result, args.api_key, verify_ssl=not args.no_ssl_verify)
         result["api_report"] = api_result
 
     # Output JSON
