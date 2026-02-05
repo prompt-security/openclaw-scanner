@@ -6,7 +6,7 @@ Outputs JSON with all collected data.
 """
 
 import argparse
-import glob
+import certifi
 import json
 import os
 import ssl
@@ -18,13 +18,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional, TypedDict
 
-try:
-    import certifi
-    CERTIFI_AVAILABLE = True
-except ImportError:
-    certifi = None
-    CERTIFI_AVAILABLE = False
-
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
 from platform_compat import compat as _compat
 from structures import CliCommand, CLAWDBOT_VARIANT_NAMES
@@ -33,40 +26,8 @@ API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
 
 
 def create_ssl_context() -> ssl.SSLContext:
-    """Create SSL context with proper certificate handling for macOS compatibility.
-
-    Tries multiple certificate sources:
-    1. certifi package (if installed)
-    2. macOS system certificates
-    3. Default Python SSL context
-
-    Returns:
-        Configured SSL context
-    """
-    # Try certifi first (best cross-platform solution)
-    if CERTIFI_AVAILABLE:
-        ctx = ssl.create_default_context(cafile=certifi.where())
-        return ctx
-
-    # macOS-specific: try system certificate locations
-    macos_cert_paths = [
-        "/etc/ssl/cert.pem",
-        "/etc/ssl/certs/ca-certificates.crt",
-    ]
-    # Add Homebrew OpenSSL paths
-    macos_cert_paths.extend(glob.glob("/opt/homebrew/etc/openssl*/cert.pem"))
-    macos_cert_paths.extend(glob.glob("/usr/local/etc/openssl*/cert.pem"))
-
-    for cert_path in macos_cert_paths:
-        if os.path.exists(cert_path):
-            try:
-                ctx = ssl.create_default_context(cafile=cert_path)
-                return ctx
-            except ssl.SSLError:
-                continue
-
-    # Fallback to default context
-    return ssl.create_default_context()
+    """Create SSL context using certifi certificates."""
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 class CliExecError(Exception):
