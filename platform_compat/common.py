@@ -11,19 +11,8 @@ from typing import List, Optional
 from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
 
 
-# CLI tools we want to detect when used in exec/shell commands
-KNOWN_CLI_TOOLS = {
-    # Cloud providers
-    'aws', 'gcloud', 'az',
-    # Containers & infrastructure
-    'docker', 'kubectl', 'helm', 'terraform', 'pulumi', 'ansible',
-    # Databases
-    'psql', 'mysql', 'mongosh', 'redis-cli', 'sqlite3',
-}
-
-
 def extract_cli_tools(command: str) -> List[str]:
-    """Extract known CLI tool names from a command string.
+    """Extract CLI tool names from a command string.
 
     Detects tools at the start of a command or after shell operators
     (&&, ||, |, ;).
@@ -43,7 +32,7 @@ def extract_cli_tools(command: str) -> List[str]:
             continue
         # The first token is the binary name (strip path prefix)
         binary = tokens[0].rsplit('/', maxsplit=1)[-1]
-        if binary in KNOWN_CLI_TOOLS:
+        if binary:
             tools.append(binary)
     return tools
 
