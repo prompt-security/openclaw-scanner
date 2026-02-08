@@ -11,15 +11,30 @@ from typing import List, Optional
 from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
 
 
-# Folders that aren't apps - skip these
-SKIP_CONFIG_FOLDERS = {
-    'git', 'ssh', 'env', 'tmp', 'cache', 'config', 'local', 'log', 'bin',
-    'npm', 'yarn', 'nvm', 'pyenv', 'rbenv', 'goenv', 'jenv', 'sdkman',
-    'bundle', 'gem', 'pip', 'poetry', 'venv', 'virtualenv', 'conda',
-    'aws', 'azure', 'gcloud', 'kube', 'helm', 'terraform',
-    'bash', 'zsh', 'fish', 'profile', 'bashrc', 'zshrc',
-    'gnupg', 'password-store', 'netrc', 'curlrc', 'wgetrc',
-}
+def extract_cli_tools(command: str) -> List[str]:
+    """Extract CLI tool names from a command string.
+
+    Detects tools at the start of a command or after shell operators
+    (&&, ||, |, ;).
+
+    Args:
+        command: The command string to parse
+
+    Returns:
+        List of CLI tool names found (e.g., ['aws', 'docker'])
+    """
+    tools: List[str] = []
+    # Split on shell operators to get individual commands
+    parts = re.split(r'[;&|]+', command)
+    for part in parts:
+        tokens = part.strip().split()
+        if not tokens:
+            continue
+        # The first token is the binary name (strip path prefix)
+        binary = tokens[0].rsplit('/', maxsplit=1)[-1]
+        if binary:
+            tools.append(binary)
+    return tools
 
 
 def dedupe_apps(apps: List[str]) -> List[str]:
@@ -53,8 +68,7 @@ def extract_apps_from_config_folders(command: str) -> List[str]:
     config_folder_pattern = r'[/\s"\']\.([a-zA-Z][a-zA-Z0-9_-]{2,20})(?:[/\s"\']|$)'
 
     for match in re.findall(config_folder_pattern, command):
-        if match.lower() not in SKIP_CONFIG_FOLDERS:
-            apps.append(match.capitalize())
+        apps.append(match.capitalize())
 
     return apps
 
