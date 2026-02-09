@@ -1,0 +1,21 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "8f99a135d908689d8c0e7d0f279fb01f297e7e13",
+  "prompts": {
+    "d8d8ccd313a16938": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "1961399d-b05d-49d1-b2e2-b1c11d5f9db7",
+        "model": "copilot/claude-opus-4.5"
+      },
+      "human_author": "Vitaly Neyman <vitaly@prompt.security>",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 21,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
