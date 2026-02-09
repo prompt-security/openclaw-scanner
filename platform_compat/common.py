@@ -22,41 +22,27 @@ SKIP_CONFIG_FOLDERS = {
 }
 
 
-# CLI tools we want to detect when used in exec/shell commands
-KNOWN_CLI_TOOLS = {
-    # Cloud providers
-    'aws', 'gcloud', 'az',
-    # Containers & infrastructure
-    'docker', 'kubectl', 'helm', 'terraform', 'pulumi', 'ansible',
-    # Databases
-    'psql', 'mysql', 'mongosh', 'redis-cli', 'sqlite3',
-}
+def extract_command_binaries(command: str) -> List[str]:
+    """Extract the binary name from each command in a pipeline/chain.
 
-
-def extract_cli_tools(command: str) -> List[str]:
-    """Extract known CLI tool names from a command string.
-
-    Detects tools at the start of a command or after shell operators
-    (&&, ||, |, ;).
+    Splits on shell operators (&&, ||, |, ;) and takes the first token
+    of each sub-command, stripping any path prefix.
 
     Args:
         command: The command string to parse
 
     Returns:
-        List of CLI tool names found (e.g., ['aws', 'docker'])
+        List of binary names found (e.g., ['aws', 'grep', 'curl'])
     """
-    tools: List[str] = []
-    # Split on shell operators to get individual commands
+    binaries: List[str] = []
     parts = re.split(r'[;&|]+', command)
     for part in parts:
         tokens = part.strip().split()
         if not tokens:
             continue
-        # The first token is the binary name (strip path prefix)
         binary = tokens[0].rsplit('/', maxsplit=1)[-1]
-        if binary in KNOWN_CLI_TOOLS:
-            tools.append(binary)
-    return tools
+        binaries.append(binary)
+    return binaries
 
 
 def _is_valid_app_name(name: str) -> bool:
