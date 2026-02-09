@@ -6,6 +6,7 @@ For cross-platform stdlib, use directly:
   - shutil.which(binary)
   - socket operations for port checks
 """
+# pylint: disable=unnecessary-ellipsis
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
@@ -58,8 +59,9 @@ class PlatformCompat(ABC):
         """
         ...
 
-    def read_system_log(self, subsystem: str, time_range: str,
-                        max_lines: int = 500) -> List[str]:
+    def read_system_log(  # pylint: disable=unused-argument
+        self, subsystem: str, time_range: str, max_lines: int = 500
+    ) -> List[str]:
         """
         Read system log entries for a subsystem.
 

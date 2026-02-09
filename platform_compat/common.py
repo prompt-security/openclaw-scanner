@@ -130,7 +130,7 @@ def get_system_info() -> SystemInfo:
 def run_cmd(cmd: List[str], timeout: int = 5) -> Optional[str]:
     """Run command, return stripped stdout or None on failure."""
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
         if result.returncode == 0:
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -168,7 +168,7 @@ def find_processes(process_names: List[str]) -> List[ProcessInfo]:
     exclude_patterns = ["installation_tracker", "grep", "ps aux"]
 
     try:
-        result = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=10, check=False)
         if result.returncode == 0:
             for line in result.stdout.split("\n"):
                 line_lower = line.lower()

@@ -6,21 +6,22 @@ Outputs JSON with all collected data.
 """
 
 import argparse
-import certifi
 import json
 import os
 import ssl
 import subprocess
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
-from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
+import certifi
+
 from platform_compat import compat as _compat
-from structures import CliCommand, CLAWDBOT_VARIANT_NAMES
+from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
+from structures import CLAWDBOT_VARIANT_NAMES, CliCommand
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
 
@@ -67,7 +68,9 @@ def _run_bot_cli(bot_cli_cmd: Optional[CliCommand], *args: str, timeout: int = 3
             env["PATH"] = f"{nvm_bin_dir}:{current_path}"
 
     try:
-        result = subprocess.run(bot_cli_cmd + list(args), capture_output=True, text=True, timeout=timeout, env=env)
+        result = subprocess.run(
+            bot_cli_cmd + list(args), capture_output=True, text=True, timeout=timeout, env=env, check=False
+        )
 
         if result.returncode != 0:
             raise CliExecError(f"Command failed: {result.stderr.strip()}")
@@ -584,6 +587,7 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
 
 
 def main():
+    """CLI entry point for openclaw-scanner."""
     parser = argparse.ArgumentParser(
         description="Scan OpenClaw usage: active skills, tools, and apps. Outputs JSON."
     )

@@ -15,10 +15,10 @@ def _create_compat() -> PlatformCompat:
     """Create platform-specific implementation. Called once at import."""
     system = platform.system()
     if system == "Darwin":
-        from .darwin import DarwinCompat
+        from .darwin import DarwinCompat  # pylint: disable=import-outside-toplevel
         return DarwinCompat()
-    elif system == "Linux":
-        from .linux import LinuxCompat
+    if system == "Linux":
+        from .linux import LinuxCompat  # pylint: disable=import-outside-toplevel
         return LinuxCompat()
     else:
         raise NotImplementedError(

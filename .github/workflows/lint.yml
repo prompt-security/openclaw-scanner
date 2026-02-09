@@ -19,7 +19,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run pylint
-        run: uv run pylint openclaw_usage.py structures.py platform_compat/
+        run: uv run pylint *.py platform_compat/
 
       - name: Run mypy
-        run: uv run mypy openclaw_usage.py structures.py platform_compat/
+        run: uv run mypy *.py platform_compat/
