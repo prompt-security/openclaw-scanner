@@ -51,14 +51,17 @@ def _is_valid_app_name(name: str) -> bool:
     # Too short (e.g., "1", "\"") or too long
     if len(name) < 2 or len(name) > 50:
         return False
-    # Must start with a letter
-    if not name[0].isalpha():
+    # Must start with a letter or digit
+    if not name[0].isalnum():
         return False
-    # Reject names with unbalanced quotes, parens, equals, or other artifacts
-    if re.search(r'["\'\(\)=;|&><`]', name):
+    # Names starting with a digit must also contain letters (allows "1Password", rejects "1")
+    if name[0].isdigit() and not any(c.isalpha() for c in name):
         return False
-    # Must be mostly alphanumeric (allow spaces, hyphens, dots for real app names)
-    if not re.match(r'^[a-zA-Z][a-zA-Z0-9 ._-]*$', name):
+    # Reject names with quotes, parens, equals, or other artifacts
+    if re.search(r'["\'\(\)=;|&><`{}\[\]#~^]', name):
+        return False
+    # Must be alphanumeric (allow spaces, hyphens, dots for real names)
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9 ._-]*$', name):
         return False
     return True
 
