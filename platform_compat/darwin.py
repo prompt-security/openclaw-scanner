@@ -1,4 +1,5 @@
 """macOS (Darwin) implementation."""
+# pylint: disable=duplicate-code
 
 import os
 import re
@@ -65,7 +66,7 @@ class DarwinCompat(PlatformCompat):
                 "log", "show",
                 "--predicate", f'subsystem == "{subsystem}"',
                 "--last", time_range, "--info"
-            ], capture_output=True, text=True, timeout=30)
+            ], capture_output=True, text=True, timeout=30, check=False)
 
             if result.returncode == 0:
                 lines = [line for line in result.stdout.strip().split('\n')

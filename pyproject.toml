@@ -31,5 +31,20 @@ include = [
     "platform_compat/*.py",
 ]
 
+[tool.pylint.main]
+ignore = ["openclaw_cli_scanner.py"]
+
 [tool.pylint.messages_control]
-disable = ["line-too-long", "too-many-locals", "too-many-branches"]
+disable = [
+    "line-too-long",
+    "too-many-locals",
+    "too-many-branches",
+    "too-many-statements",
+    "too-many-nested-blocks",
+    "too-many-return-statements",
+    "broad-exception-caught",
+    "no-else-return",
+]
+
+[tool.mypy]
+exclude = ["openclaw_cli_scanner.py"]

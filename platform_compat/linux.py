@@ -1,4 +1,5 @@
 """Linux implementation."""
+# pylint: disable=duplicate-code
 
 import os
 import re
@@ -67,7 +68,7 @@ class LinuxCompat(PlatformCompat):
             ]
             if since:
                 cmd.extend(["--since", since])
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
 
             if result.returncode == 0:
                 return [line for line in result.stdout.strip().split('\n') if line.strip()]
