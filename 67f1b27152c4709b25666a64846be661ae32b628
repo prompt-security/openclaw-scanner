@@ -1,0 +1,33 @@
+pyproject.toml
+  d8d8ccd313a16938 38-43
+platform_compat/base.py
+  d8d8ccd313a16938 62
+.github/workflows/lint.yml
+  d8d8ccd313a16938 22,25
+openclaw_usage.py
+  d8d8ccd313a16938 72
+platform_compat/darwin.py
+  d8d8ccd313a16938 2,69
+platform_compat/__init__.py
+  d8d8ccd313a16938 18,20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "67f1b27152c4709b25666a64846be661ae32b628",
+  "prompts": {
+    "d8d8ccd313a16938": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "1961399d-b05d-49d1-b2e2-b1c11d5f9db7",
+        "model": "copilot/claude-opus-4.5"
+      },
+      "human_author": "Vitaly Neyman <vitaly@prompt.security>",
+      "messages": [],
+      "total_additions": 27,
+      "total_deletions": 11,
+      "accepted_lines": 15,
+      "overriden_lines": 0
+    }
+  }
+}
