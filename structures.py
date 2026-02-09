@@ -1,6 +1,6 @@
 """Shared data structures for openclaw-scanner.
 
-All TypedDicts used across installation_tracker.py and platform_compat/.
+All TypedDicts used across openclaw_usage.py and platform_compat/.
 """
 
 from dataclasses import dataclass
