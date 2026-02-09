@@ -11,8 +11,30 @@ from typing import List, Optional
 from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
 
 
+# Folders that aren't apps - skip these
+SKIP_CONFIG_FOLDERS = {
+    'git', 'ssh', 'env', 'tmp', 'cache', 'config', 'local', 'log', 'bin',
+    'npm', 'yarn', 'nvm', 'pyenv', 'rbenv', 'goenv', 'jenv', 'sdkman',
+    'bundle', 'gem', 'pip', 'poetry', 'venv', 'virtualenv', 'conda',
+    'kube',
+    'bash', 'zsh', 'fish', 'profile', 'bashrc', 'zshrc',
+    'gnupg', 'password-store', 'netrc', 'curlrc', 'wgetrc',
+}
+
+
+# CLI tools we want to detect when used in exec/shell commands
+KNOWN_CLI_TOOLS = {
+    # Cloud providers
+    'aws', 'gcloud', 'az',
+    # Containers & infrastructure
+    'docker', 'kubectl', 'helm', 'terraform', 'pulumi', 'ansible',
+    # Databases
+    'psql', 'mysql', 'mongosh', 'redis-cli', 'sqlite3',
+}
+
+
 def extract_cli_tools(command: str) -> List[str]:
-    """Extract CLI tool names from a command string.
+    """Extract known CLI tool names from a command string.
 
     Detects tools at the start of a command or after shell operators
     (&&, ||, |, ;).
@@ -32,20 +54,40 @@ def extract_cli_tools(command: str) -> List[str]:
             continue
         # The first token is the binary name (strip path prefix)
         binary = tokens[0].rsplit('/', maxsplit=1)[-1]
-        if binary:
+        if binary in KNOWN_CLI_TOOLS:
             tools.append(binary)
     return tools
 
 
+def _is_valid_app_name(name: str) -> bool:
+    """Check if a detected name looks like a real app, not a shell command or artifact."""
+    name = name.strip()
+    # Too short (e.g., "1", "\"") or too long
+    if len(name) < 2 or len(name) > 50:
+        return False
+    # Must start with a letter
+    if not name[0].isalpha():
+        return False
+    # Reject names with unbalanced quotes, parens, equals, or other artifacts
+    if re.search(r'["\'\(\)=;|&><`]', name):
+        return False
+    # Must be mostly alphanumeric (allow spaces, hyphens, dots for real app names)
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9 ._-]*$', name):
+        return False
+    return True
+
+
+
 def dedupe_apps(apps: List[str]) -> List[str]:
-    """Remove duplicates while preserving order (case-insensitive)."""
+    """Remove duplicates and filter out artifacts (keeps both apps and shell commands)."""
     seen: set[str] = set()
     unique_apps: List[str] = []
     for app in apps:
-        app_lower = app.lower()
-        if app_lower not in seen:
+        app_clean = app.strip()
+        app_lower = app_clean.lower()
+        if app_lower not in seen and _is_valid_app_name(app_clean):
             seen.add(app_lower)
-            unique_apps.append(app)
+            unique_apps.append(app_clean)
     return unique_apps
 
 
@@ -68,7 +110,8 @@ def extract_apps_from_config_folders(command: str) -> List[str]:
     config_folder_pattern = r'[/\s"\']\.([a-zA-Z][a-zA-Z0-9_-]{2,20})(?:[/\s"\']|$)'
 
     for match in re.findall(config_folder_pattern, command):
-        apps.append(match.capitalize())
+        if match.lower() not in SKIP_CONFIG_FOLDERS:
+            apps.append(match.capitalize())
 
     return apps
 

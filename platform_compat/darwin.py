@@ -105,7 +105,7 @@ class DarwinCompat(PlatformCompat):
         # Generic: config folder references (.obsidian, .vscode, etc.)
         apps.extend(extract_apps_from_config_folders(command))
 
-        # CLI tools from command strings
+        # CLI tools (aws, docker, kubectl, etc.)
         apps.extend(extract_cli_tools(command))
 
         return dedupe_apps(apps)
