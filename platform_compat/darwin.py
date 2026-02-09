@@ -13,7 +13,7 @@ from .common import (
     run_cmd, get_user_id, get_group_id,
     get_groups, get_uname, find_processes as _find_processes,
     get_base_tool_paths, dedupe_apps, find_openclaw_binary_common,
-    extract_apps_from_config_folders, extract_cli_tools,
+    extract_apps_from_config_folders, extract_command_binaries,
 )
 
 
@@ -105,8 +105,8 @@ class DarwinCompat(PlatformCompat):
         # Generic: config folder references (.obsidian, .vscode, etc.)
         apps.extend(extract_apps_from_config_folders(command))
 
-        # CLI tools from command strings
-        apps.extend(extract_cli_tools(command))
+        # Command binaries (first token of each command in the pipeline)
+        apps.extend(extract_command_binaries(command))
 
         return dedupe_apps(apps)
 

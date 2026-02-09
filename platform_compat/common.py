@@ -11,41 +11,72 @@ from typing import List, Optional
 from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
 
 
-def extract_cli_tools(command: str) -> List[str]:
-    """Extract CLI tool names from a command string.
+# Folders that aren't apps - skip these
+SKIP_CONFIG_FOLDERS = {
+    'git', 'ssh', 'env', 'tmp', 'cache', 'config', 'local', 'log', 'bin',
+    'npm', 'yarn', 'nvm', 'pyenv', 'rbenv', 'goenv', 'jenv', 'sdkman',
+    'bundle', 'gem', 'pip', 'poetry', 'venv', 'virtualenv', 'conda',
+    'kube',
+    'bash', 'zsh', 'fish', 'profile', 'bashrc', 'zshrc',
+    'gnupg', 'password-store', 'netrc', 'curlrc', 'wgetrc',
+}
 
-    Detects tools at the start of a command or after shell operators
-    (&&, ||, |, ;).
+
+def extract_command_binaries(command: str) -> List[str]:
+    """Extract the binary name from each command in a pipeline/chain.
+
+    Splits on shell operators (&&, ||, |, ;) and takes the first token
+    of each sub-command, stripping any path prefix.
 
     Args:
         command: The command string to parse
 
     Returns:
-        List of CLI tool names found (e.g., ['aws', 'docker'])
+        List of binary names found (e.g., ['aws', 'grep', 'curl'])
     """
-    tools: List[str] = []
-    # Split on shell operators to get individual commands
+    binaries: List[str] = []
     parts = re.split(r'[;&|]+', command)
     for part in parts:
         tokens = part.strip().split()
         if not tokens:
             continue
-        # The first token is the binary name (strip path prefix)
         binary = tokens[0].rsplit('/', maxsplit=1)[-1]
-        if binary:
-            tools.append(binary)
-    return tools
+        binaries.append(binary)
+    return binaries
+
+
+def _is_valid_app_name(name: str) -> bool:
+    """Check if a detected name looks like a real app, not a shell command or artifact."""
+    name = name.strip()
+    # Too short (e.g., "1", "\"") or too long
+    if len(name) < 2 or len(name) > 50:
+        return False
+    # Must start with a letter or digit
+    if not name[0].isalnum():
+        return False
+    # Names starting with a digit must also contain letters (allows "1Password", rejects "1")
+    if name[0].isdigit() and not any(c.isalpha() for c in name):
+        return False
+    # Reject names with quotes, parens, equals, or other artifacts
+    if re.search(r'["\'\(\)=;|&><`{}\[\]#~^]', name):
+        return False
+    # Must be alphanumeric (allow spaces, hyphens, dots for real names)
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9 ._-]*$', name):
+        return False
+    return True
+
 
 
 def dedupe_apps(apps: List[str]) -> List[str]:
-    """Remove duplicates while preserving order (case-insensitive)."""
+    """Remove duplicates and filter out artifacts (keeps both apps and shell commands)."""
     seen: set[str] = set()
     unique_apps: List[str] = []
     for app in apps:
-        app_lower = app.lower()
-        if app_lower not in seen:
+        app_clean = app.strip()
+        app_lower = app_clean.lower()
+        if app_lower not in seen and _is_valid_app_name(app_clean):
             seen.add(app_lower)
-            unique_apps.append(app)
+            unique_apps.append(app_clean)
     return unique_apps
 
 
@@ -68,7 +99,8 @@ def extract_apps_from_config_folders(command: str) -> List[str]:
     config_folder_pattern = r'[/\s"\']\.([a-zA-Z][a-zA-Z0-9_-]{2,20})(?:[/\s"\']|$)'
 
     for match in re.findall(config_folder_pattern, command):
-        apps.append(match.capitalize())
+        if match.lower() not in SKIP_CONFIG_FOLDERS:
+            apps.append(match.capitalize())
 
     return apps
 
