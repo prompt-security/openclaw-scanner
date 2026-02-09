@@ -457,7 +457,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
                                     "tool_name": item.get("name"),
                                     "tool_id": item.get("id"),
                                     "timestamp": data.get("timestamp"),
-                                    "session": session_file.name,
+                                    "session": session_file.stem,
                                     "arguments": arguments,
                                     "apps_detected": apps
                                 })
@@ -478,18 +478,31 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     # Sort by count (descending)
     tools_summary = dict(sorted(tools_summary.items(), key=lambda x: x[1], reverse=True))
 
-    # Build apps usage summary
+    # Build apps usage summary and collect full commands per app
     apps_summary: Dict[str, int] = {}
+    apps_commands: Dict[str, List[Dict[str, str]]] = {}
     for tc in tool_calls:
+        command = tc.get("arguments", {}).get("command", "")
+        timestamp = tc.get("timestamp", "")
         for app in tc.get("apps_detected", []):
             apps_summary[app] = apps_summary.get(app, 0) + 1
+            if command:
+                if app not in apps_commands:
+                    apps_commands[app] = []
+                apps_commands[app].append({
+                    "command": command,
+                    "timestamp": timestamp,
+                    "session": tc.get("session", ""),
+                })
 
     apps_summary = dict(sorted(apps_summary.items(), key=lambda x: x[1], reverse=True))
+    apps_commands = {app: apps_commands[app] for app in apps_summary if app in apps_commands}
 
     return {
         "tool_calls": tool_calls,
         "tools_summary": tools_summary,
         "apps_summary": apps_summary,
+        "apps_commands": apps_commands,
         "total_tool_calls": len(tool_calls),
         "unique_tools": len(tools_summary),
         "unique_apps": len(apps_summary),
@@ -667,16 +680,19 @@ def main():
 
     # Build summary
     active_skills_list = skills_result.get("active_skills", [])
-    app_names = list(logs_result.get("apps_summary", {}).keys())
+    apps_summary = logs_result.get("apps_summary", {})
     tool_names = list(logs_result.get("tools_summary", {}).keys())
 
     summary = {
         "active_skills": active_skills_list,
         "active_skills_count": len(active_skills_list),
-        "apps_detected": app_names,
-        "apps_detected_count": len(app_names),
+        "apps_detected": list(apps_summary.keys()),
+        "apps_detected_count": len(apps_summary),
+        "apps_call_count": apps_summary,
+        "apps_commands": logs_result.get("apps_commands", {}),
         "tools_used": tool_names,
         "tools_used_count": len(tool_names),
+        "tools_call_count": logs_result.get("tools_summary", {}),
         "total_tool_calls": logs_result.get("total_tool_calls", 0),
         "sessions_scanned": logs_result.get("sessions_scanned", 0),
         "cron_jobs": cron_result.get("cron_jobs", []),
