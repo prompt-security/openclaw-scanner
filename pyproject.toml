@@ -31,6 +31,9 @@ include = [
     "platform_compat/*.py",
 ]
 
+[tool.pylint.main]
+ignore = ["openclaw_cli_scanner.py"]
+
 [tool.pylint.messages_control]
 disable = [
     "line-too-long",
@@ -42,3 +45,6 @@ disable = [
     "broad-exception-caught",
     "no-else-return",
 ]
+
+[tool.mypy]
+exclude = ["openclaw_cli_scanner.py"]
