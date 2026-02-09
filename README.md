@@ -52,7 +52,7 @@ openclaw-scanner [OPTIONS]
 |--------|-------------|
 | `--help` | Show help message |
 | `--cli PATH` | Specify CLI command or path (auto-detects by default) |
-| `--api-key KEY` | API key for sending report to server |
+| `--scanner-report-api-key KEY` | API key for sending report to server (or set `SCANNER_REPORT_API_KEY` env variable) |
 | `--compact` | Output compact JSON (no indentation) |
 | `--full` | Include full details in output |
 | `--limit N` | Limit recent tool calls in output (default: 50) |

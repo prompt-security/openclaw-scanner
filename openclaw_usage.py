@@ -588,10 +588,10 @@ def main():
         description="Scan OpenClaw usage: active skills, tools, and apps. Outputs JSON."
     )
     parser.add_argument(
-        "--api-key",
+        "--scanner-report-api-key",
         type=str,
-        default=None,
-        help="API key for sending report to the server"
+        default=os.environ.get("SCANNER_REPORT_API_KEY"),
+        help="API key for sending report to the server (or set SCANNER_REPORT_API_KEY env var)"
     )
     parser.add_argument(
         "--cli",
@@ -747,9 +747,9 @@ def main():
             "summary": summary
         }
 
-    # Send report to API if api-key is provided
-    if args.api_key:
-        api_result = send_report(result, args.api_key, verify_ssl=not args.no_ssl_verify)
+    # Send report to API if scanner-report-api-key is provided
+    if args.scanner_report_api_key:
+        api_result = send_report(result, args.scanner_report_api_key, verify_ssl=not args.no_ssl_verify)
         result["api_report"] = api_result
 
     # Output JSON

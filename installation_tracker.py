@@ -38,8 +38,8 @@ try:
 except ImportError:
     YAML_AVAILABLE = False
 
-# Configuration - Add your API key here
-API_KEY = "YOUR_API_KEY_HERE"
+# Configuration - Add your API key here (or set SCANNER_REPORT_API_KEY env variable)
+SCANNER_REPORT_API_KEY = os.environ.get("SCANNER_REPORT_API_KEY", "YOUR_API_KEY_HERE")
 
 # Known services/apps for categorization
 KNOWN_SERVICES = {
@@ -305,7 +305,7 @@ TOOL_CONFIGS: Dict[str, ToolConfig] = {
 
 
 class InstallationTracker:
-    def __init__(self, api_key: str = API_KEY):
+    def __init__(self, api_key: str = SCANNER_REPORT_API_KEY):
         self.api_key = api_key
         self.username = self._get_current_username()
         self.hostname = socket.gethostname()
@@ -2317,9 +2317,9 @@ Examples:
         """
     )
     parser.add_argument(
-        "--api-key",
-        default=API_KEY,
-        help="API key to include in report"
+        "--scanner-report-api-key",
+        default=SCANNER_REPORT_API_KEY,
+        help="API key for sending report to server (or set SCANNER_REPORT_API_KEY env variable)"
     )
     parser.add_argument(
         "--json",
