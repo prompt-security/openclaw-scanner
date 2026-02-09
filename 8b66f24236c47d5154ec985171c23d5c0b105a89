@@ -1,0 +1,23 @@
+installation_tracker.py
+  d8d8ccd313a16938 42,308,2320-2321
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.42",
+  "base_commit_sha": "8b66f24236c47d5154ec985171c23d5c0b105a89",
+  "prompts": {
+    "d8d8ccd313a16938": {
+      "agent_id": {
+        "tool": "github-copilot",
+        "id": "1961399d-b05d-49d1-b2e2-b1c11d5f9db7",
+        "model": "copilot/claude-opus-4.5"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 7,
+      "total_deletions": 7,
+      "accepted_lines": 4,
+      "overriden_lines": 0
+    }
+  }
+}
