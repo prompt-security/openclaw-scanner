@@ -501,11 +501,58 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     apps_summary = dict(sorted(apps_summary.items(), key=lambda x: x[1], reverse=True))
     apps_commands = {app: apps_commands[app] for app in apps_summary if app in apps_commands}
 
+    # Extract web activity from tool calls (browser, web_fetch, web_search)
+    browser_urls: List[Dict[str, str]] = []
+    fetched_urls: List[Dict[str, str]] = []
+    search_queries: List[Dict[str, str]] = []
+
+    for tc in tool_calls:
+        tool_name = tc.get("tool_name", "")
+        tc_args = tc.get("arguments", {})
+        tc_timestamp = tc.get("timestamp", "")
+        tc_session = tc.get("session", "")
+
+        if tool_name == "browser":
+            url = tc_args.get("targetUrl", "") or tc_args.get("url", "")
+            if url:
+                browser_urls.append({
+                    "url": url,
+                    "action": tc_args.get("action", "open"),
+                    "timestamp": tc_timestamp,
+                    "session": tc_session,
+                })
+        elif tool_name == "web_fetch":
+            url = tc_args.get("url", "")
+            if url:
+                fetched_urls.append({
+                    "url": url,
+                    "timestamp": tc_timestamp,
+                    "session": tc_session,
+                })
+        elif tool_name == "web_search":
+            query = tc_args.get("query", "")
+            if query:
+                search_queries.append({
+                    "query": query,
+                    "timestamp": tc_timestamp,
+                    "session": tc_session,
+                })
+
+    web_activity: Dict[str, Any] = {
+        "browser_urls": browser_urls,
+        "fetched_urls": fetched_urls,
+        "search_queries": search_queries,
+        "browser_urls_count": len(browser_urls),
+        "fetched_urls_count": len(fetched_urls),
+        "search_queries_count": len(search_queries),
+    }
+
     return {
         "tool_calls": tool_calls,
         "tools_summary": tools_summary,
         "apps_summary": apps_summary,
         "apps_commands": apps_commands,
+        "web_activity": web_activity,
         "total_tool_calls": len(tool_calls),
         "unique_tools": len(tools_summary),
         "unique_apps": len(apps_summary),
@@ -716,6 +763,8 @@ def main():
         # Exec approvals (permissions)
         "permissions": exec_approvals.get("permissions", []),
         "permissions_count": exec_approvals.get("permissions_count", 0),
+        # Web activity (browser, fetch, search)
+        "web_activity": logs_result.get("web_activity", {}),
     }
 
     # Build output based on --full flag
