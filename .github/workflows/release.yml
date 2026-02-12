@@ -19,10 +19,11 @@ jobs:
       - name: Build wheel
         run: uv build
 
-      - name: Upload wheel to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/*.whl
+          name: wheel
+          path: dist/*.whl
 
   build-executables:
     strategy:
@@ -54,19 +55,38 @@ jobs:
             --hidden-import platform_compat.common \
             openclaw_usage.py
 
-      - name: Upload executable to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/openclaw-scanner-${{ matrix.name }}*
+          name: executable-${{ matrix.name }}
+          path: dist/openclaw-scanner-${{ matrix.name }}*
 
-  upload-mdm-scripts:
+  prepare-mdm-scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Upload MDM scripts to release
+      - name: Upload MDM scripts artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mdm-scripts
+          path: |
+            scripts/mdm-macos.sh
+            scripts/mdm-windows-wsl.ps1
+
+  release:
+    needs: [build-wheel, build-executables, prepare-mdm-scripts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload all assets to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            scripts/mdm-macos.sh
-            scripts/mdm-windows-wsl.ps1
+            artifacts/wheel/*.whl
+            artifacts/executable-*/*
+            artifacts/mdm-scripts/scripts/*
