@@ -58,3 +58,15 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/openclaw-scanner-${{ matrix.name }}*
+
+  upload-mdm-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload MDM scripts to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scripts/mdm-macos.sh
+            scripts/mdm-windows-wsl.ps1
