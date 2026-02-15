@@ -90,8 +90,8 @@ Returns JSON with the following fields:
 
 ## Requirements
 
-- OpenClaw, Moltbot, Clawdbot or smaller variants: nanobot picobot CLI installed
-- Config directory such as `.openclaw` directory detected in the user home directory
+- OpenClaw, Moltbot, Clawdbot or smaller variants: nanobot picoclaw CLI installed
+- Config directory such as `.openclaw` detected in the user home directory
 
 ## License
 

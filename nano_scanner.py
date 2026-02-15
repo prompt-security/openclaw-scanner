@@ -107,6 +107,7 @@ def _extract_channels(cfg: Dict[str, Any]) -> Dict[str, Any]:
             continue
         result[name] = {
             "enabled": ccfg.get("enabled", False),
+            "allow_from": ccfg.get("allow_from", []),
         }
     return result
 
@@ -253,19 +254,19 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
     if not vdef:
         return None
 
-    # Read and normalize config
-    cfg = _read_variant_config(name, home)
+    # Read and normalize config (always a dict so helpers need no guards)
+    cfg = _read_variant_config(name, home) or {}
 
     # Binary detection — prefer already-resolved path from install_info
     binary_path = install_info.bot_cli_cmd[0] if install_info.bot_cli_cmd else _detect_binary(vdef)
     version = _get_version(binary_path)
 
-    # Extract data from config (if config exists)
-    providers = _extract_providers(cfg) if cfg else {}
-    channels = _extract_channels(cfg) if cfg else {}
-    agent_defaults = _extract_agent_defaults(cfg) if cfg else {}
-    mcp_servers = _extract_mcp_servers(cfg) if cfg else []
-    gateway = _extract_gateway(cfg) if cfg else {}
+    # Extract data from config
+    providers = _extract_providers(cfg)
+    channels = _extract_channels(cfg)
+    agent_defaults = _extract_agent_defaults(cfg)
+    mcp_servers = _extract_mcp_servers(cfg)
+    gateway = _extract_gateway(cfg)
 
     # Scan filesystem
     skills = _scan_skills(home, vdef)
@@ -288,8 +289,8 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
     ]
 
     # Security posture — restrict_to_workspace lives in agents.defaults
-    tools_cfg = cfg.get("tools", {}) if cfg else {}
-    agents_defaults = cfg.get("agents", {}).get("defaults", {}) if cfg else {}
+    tools_cfg = cfg.get("tools", {})
+    agents_defaults = cfg.get("agents", {}).get("defaults", {})
     security_audit: Dict[str, Any] = {
         "restrict_to_workspace": agents_defaults.get("restrict_to_workspace", False),
         "exec_timeout": tools_cfg.get("exec", {}).get("timeout", 60),
@@ -300,11 +301,19 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
         "passed": True,
     }
 
-    # Models status — which providers have API keys configured
+    # Models status — match OpenClaw CLI schema so backend/UI gets expected keys
     models_status: Dict[str, Any] = {
-        "models_status": {
-            pname: {"has_auth": pinfo.get("has_api_key", False)}
-            for pname, pinfo in providers.items()
+        "model": None,
+        "imageModel": None,
+        "auth": {
+            "providers": {
+                pname: {
+                    "has_auth": pinfo.get("has_api_key", False),
+                    "api_key_masked": pinfo.get("api_key_masked"),
+                    "has_api_base": pinfo.get("has_api_base", False),
+                }
+                for pname, pinfo in providers.items()
+            },
         },
         "has_auth": any(
             pinfo.get("has_api_key", False) for pinfo in providers.values()
@@ -358,7 +367,7 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
 
     result: Dict[str, Any] = {
         "scan_timestamp": datetime.now().isoformat(),
-        "bot_cli_cmd": binary_path or name,
+        "bot_cli_cmd": " ".join(install_info.bot_cli_cmd) if install_info.bot_cli_cmd else (binary_path or name),
         "bot_variant": name,
         "bot_version": version,
         "bot_config_dir": str(home),
