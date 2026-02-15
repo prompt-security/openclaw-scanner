@@ -29,7 +29,7 @@ _TIER1_PATTERNS: List[re.Pattern[str]] = [
     re.compile(r"glpat-[A-Za-z0-9_-]{20,}"),
     # Slack tokens
     re.compile(r"xox[bpoas]-[A-Za-z0-9-]{10,}"),
-    # Stripe keys
+    # Stripe keys (also covers Clerk sk_live_ pattern)
     re.compile(r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{10,}"),
     # Google API keys
     re.compile(r"AIza[A-Za-z0-9_-]{30,}"),
@@ -39,6 +39,48 @@ _TIER1_PATTERNS: List[re.Pattern[str]] = [
     re.compile(r"npm_[A-Za-z0-9]{20,}"),
     # JWTs (three dot-separated base64url segments, first starts with eyJ)
     re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
+    # SendGrid API keys (SG.xxx.yyy)
+    re.compile(r"SG\.[A-Za-z0-9_.-]{20,}"),
+    # Twilio API Key SID
+    re.compile(r"SK[0-9a-fA-F]{32}"),
+    # Databricks tokens
+    re.compile(r"dapi[0-9a-fA-F]{32,}"),
+    # DigitalOcean tokens
+    re.compile(r"dop_v1_[A-Fa-f0-9]{64}"),
+    # Shopify tokens (shpat_, shpca_, shppa_)
+    re.compile(r"shp(?:at|ca|pa)_[A-Fa-f0-9]{32,}"),
+    # Atlassian API tokens
+    re.compile(r"ATATT[A-Za-z0-9_-]{20,}"),
+    # PyPI tokens
+    re.compile(r"pypi-[A-Za-z0-9_-]{20,}"),
+    # Hashicorp Vault tokens
+    re.compile(r"hvs\.[A-Za-z0-9_-]{20,}"),
+    # Grafana cloud/service account tokens
+    re.compile(r"gl(?:c|sa)_[A-Za-z0-9_-]{20,}"),
+    # Linear API keys
+    re.compile(r"lin_api_[A-Za-z0-9]{20,}"),
+    # PlanetScale tokens
+    re.compile(r"pscale_tkn_[A-Za-z0-9_-]{20,}"),
+    # Postman API keys
+    re.compile(r"PMAK-[A-Za-z0-9_-]{20,}"),
+    # Pulumi tokens
+    re.compile(r"pul-[A-Za-z0-9]{20,}"),
+    # Doppler tokens
+    re.compile(r"dp\.st\.[A-Za-z0-9_-]{20,}"),
+    # Notion tokens
+    re.compile(r"ntn_[A-Za-z0-9]{20,}"),
+    # Telegram bot tokens
+    re.compile(r"\d{8,}:AA[A-Za-z0-9_-]{30,}"),
+    # Private key blocks (PEM)
+    re.compile(r"-----BEGIN\s+[\w\s]*PRIVATE KEY-----"),
+    # Generic live_/test_ prefixed long keys (e.g. TheCatAPI)
+    re.compile(r"(?:live|test)_[A-Za-z0-9]{30,}"),
+    # Vercel tokens
+    re.compile(r"vercel_[A-Za-z0-9_-]{20,}"),
+    # Resend tokens
+    re.compile(r"re_[A-Za-z0-9]{20,}"),
+    # Figma tokens
+    re.compile(r"figd_[A-Za-z0-9_-]{20,}"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -79,13 +121,37 @@ _TIER2_PATTERNS: List[tuple[re.Pattern[str], Union[str, callable]]] = [
         ),
         lambda m: m.group(1) + REDACTED + m.group(0)[m.end(2) - m.start(0):],
     ),
-    # Header values: -H "Authorization: value"
+    # Header values: -H "Authorization: value" or --header "Authorization: value"
     (
         re.compile(
-            r"""(-H\s+["'](?:Authorization|X-Api-Key|X-Auth-Token)\s*:\s*)([^"']+)(["'])""",
+            r"""((?:-H|--header)\s+["'](?:Authorization|X-Api-Key|X-Auth-Token)\s*:\s*)([^"']+)(["'])""",
             re.IGNORECASE,
         ),
         lambda m: m.group(1) + REDACTED + m.group(3),
+    ),
+    # JSON secret fields: "api_key": "value", "token": "value", etc.
+    (
+        re.compile(
+            r"""("(?:api_key|apikey|api-key|token|secret|password|passwd|access_token|auth_token|client_secret|private_key|secret_key|credentials|authorization)"\s*:\s*")([^"]+)(")""",
+            re.IGNORECASE,
+        ),
+        lambda m: m.group(1) + REDACTED + m.group(3),
+    ),
+    # curl -u user:pass (basic auth shorthand)
+    (
+        re.compile(
+            r"""(curl\s+.*?-u\s+)(\S+:\S+)""",
+            re.IGNORECASE,
+        ),
+        lambda m: m.group(1) + REDACTED,
+    ),
+    # Generic colon-separated key-value with sensitive key name: token:value, api_key:value
+    (
+        re.compile(
+            r"""(?<![/\w])(?:token|api_key|apikey|api-key|secret|password|auth_token|access_token):([A-Za-z0-9_-]{8,})""",
+            re.IGNORECASE,
+        ),
+        lambda m: m.group(0).replace(m.group(1), REDACTED),
     ),
 ]
 
@@ -101,6 +167,8 @@ _SENSITIVE_QUERY_PARAMS = frozenset({
     "key", "private_key",
     "client_secret",
     "authorization",
+    "refresh_token", "session_token",
+    "auth", "credentials",
 })
 
 
@@ -135,6 +203,10 @@ def scrub_url(url: str) -> str:
         # If URL parsing fails, fall back to text scrubbing
         return scrub_text(url)
 
+    # If it doesn't look like a real URL, fall back to text scrubbing
+    if not parsed.scheme or not parsed.netloc:
+        return scrub_text(url)
+
     changed = False
 
     # Scrub userinfo (user:pass@host)
@@ -158,7 +230,8 @@ def scrub_url(url: str) -> str:
                 new_params[key] = values
 
         if changed:
-            new_query = urlencode(new_params, doseq=True)
+            # Use quote_via to prevent percent-encoding the REDACTED marker
+            new_query = urlencode(new_params, doseq=True, quote_via=lambda s, safe='', encoding=None, errors=None: s)
             return urlunparse(parsed._replace(netloc=netloc, query=new_query))
 
     if changed:
@@ -177,11 +250,12 @@ def scrub_arguments(args: Any) -> Any:
         result: Dict[str, Any] = {}
         for key, value in args.items():
             if isinstance(value, str):
-                # URL-shaped values get URL scrubbing; everything else gets text scrubbing
-                if value.startswith(("http://", "https://")) or "://" in value:
-                    result[key] = scrub_url(value)
-                else:
-                    result[key] = scrub_text(value)
+                # Always apply text scrubbing first (catches headers, tokens, etc.),
+                # then additionally apply URL scrubbing for URL-shaped values.
+                scrubbed = scrub_text(value)
+                if scrubbed.startswith(("http://", "https://")) or "://" in scrubbed:
+                    scrubbed = scrub_url(scrubbed)
+                result[key] = scrubbed
             elif isinstance(value, (dict, list)):
                 result[key] = scrub_arguments(value)
             else:
@@ -190,5 +264,11 @@ def scrub_arguments(args: Any) -> Any:
 
     if isinstance(args, list):
         return [scrub_arguments(item) for item in args]
+
+    if isinstance(args, str):
+        scrubbed = scrub_text(args)
+        if scrubbed.startswith(("http://", "https://")) or "://" in scrubbed:
+            scrubbed = scrub_url(scrubbed)
+        return scrubbed
 
     return args

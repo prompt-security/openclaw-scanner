@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, TypedDict
 import certifi
 
 from platform_compat import compat as _compat
-from scrubber import scrub_arguments, scrub_url
+from scrubber import scrub_arguments, scrub_text, scrub_url
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
 from structures import CLAWDBOT_VARIANT_NAMES, CliCommand
 
@@ -800,6 +800,9 @@ def main():
             "system_info": system_info,
             "summary": summary
         }
+
+    # Scrub the entire result to redact any remaining secrets/tokens
+    result = scrub_arguments(result)
 
     # Send report to API if scanner-report-api-key is provided
     if args.scanner_report_api_key:

@@ -67,6 +67,78 @@ class TestTier1Patterns:
         token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
         assert scrub_text(token) == REDACTED
 
+    def test_sendgrid_key(self):
+        assert scrub_text("SG.abcdefghijklmnopqrstuv.wxyz1234567890abcdefg") == REDACTED
+
+    def test_twilio_api_key_sid(self):
+        assert scrub_text("SK" + "a1b2c3d4" * 4) == REDACTED
+
+    def test_databricks_token(self):
+        assert scrub_text("dapi" + "a1b2c3d4" * 4) == REDACTED
+
+    def test_digitalocean_token(self):
+        token = "dop_v1_" + "a" * 64
+        assert scrub_text(token) == REDACTED
+
+    def test_shopify_token(self):
+        token = "shpat_" + "a" * 32
+        assert scrub_text(token) == REDACTED
+
+    def test_atlassian_token(self):
+        assert scrub_text("ATATT" + "x" * 30) == REDACTED
+
+    def test_pypi_token(self):
+        assert scrub_text("pypi-AgEIcHlwaS5vcmcABCD1234567890") == REDACTED
+
+    def test_vault_token(self):
+        assert scrub_text("hvs.CAESIJ1234567890abcdefghijk") == REDACTED
+
+    def test_grafana_cloud_token(self):
+        assert scrub_text("glc_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_grafana_sa_token(self):
+        assert scrub_text("glsa_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_linear_api_key(self):
+        assert scrub_text("lin_api_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_planetscale_token(self):
+        assert scrub_text("pscale_tkn_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_postman_key(self):
+        assert scrub_text("PMAK-abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_pulumi_token(self):
+        assert scrub_text("pul-abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_doppler_token(self):
+        assert scrub_text("dp.st.abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_notion_token(self):
+        assert scrub_text("ntn_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_telegram_bot_token(self):
+        assert scrub_text("123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw") == REDACTED
+
+    def test_private_key_block(self):
+        result = scrub_text("-----BEGIN RSA PRIVATE KEY-----")
+        assert REDACTED in result
+
+    def test_generic_live_key(self):
+        assert scrub_text("live_aw2aglwrZrpQ1234567890abcdefghijklm") == REDACTED
+
+    def test_generic_test_key(self):
+        assert scrub_text("test_aw2aglwrZrpQ1234567890abcdefghijklm") == REDACTED
+
+    def test_vercel_token(self):
+        assert scrub_text("vercel_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_resend_token(self):
+        assert scrub_text("re_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
+    def test_figma_token(self):
+        assert scrub_text("figd_abcdefghijklmnopqrstuvwxyz") == REDACTED
+
     def test_key_embedded_in_sentence(self):
         text = "Use key sk-abc123def456ghi789jkl012mno345pqr678stu901vwx for auth"
         result = scrub_text(text)
@@ -160,6 +232,51 @@ class TestTier2Patterns:
         result = scrub_text("-H 'X-Api-Key: secret-key-value'")
         assert REDACTED in result
         assert "secret-key-value" not in result
+
+    def test_header_long_form(self):
+        result = scrub_text('--header "Authorization: Bearer mytoken123"')
+        assert REDACTED in result
+        assert "mytoken123" not in result
+
+    def test_header_x_api_key_long_form(self):
+        result = scrub_text('--header "X-Api-Key: live_aw2aglwrZrpQ"')
+        assert REDACTED in result
+        assert "live_aw2aglwrZrpQ" not in result
+
+    def test_json_api_key_field(self):
+        result = scrub_text('"api_key": "sk-ant-o1234567890abcdef"')
+        assert REDACTED in result
+        assert "sk-ant-o1234567890abcdef" not in result
+
+    def test_json_token_field(self):
+        result = scrub_text('"token": "my-secret-token-value"')
+        assert REDACTED in result
+        assert "my-secret-token-value" not in result
+
+    def test_json_password_field(self):
+        result = scrub_text('"password": "hunter2"')
+        assert REDACTED in result
+        assert "hunter2" not in result
+
+    def test_json_secret_field(self):
+        result = scrub_text('"secret": "abcdef123456"')
+        assert REDACTED in result
+        assert "abcdef123456" not in result
+
+    def test_curl_basic_auth(self):
+        result = scrub_text("curl -u admin:secretpass https://api.example.com")
+        assert REDACTED in result
+        assert "admin:secretpass" not in result
+
+    def test_colon_separated_token(self):
+        result = scrub_text("token:sk-ant-o12345678901234567890")
+        assert REDACTED in result
+        assert "sk-ant-o12345678901234567890" not in result
+
+    def test_colon_separated_api_key(self):
+        result = scrub_text("api_key:mySecretKeyValue1234")
+        assert REDACTED in result
+        assert "mySecretKeyValue1234" not in result
 
 
 # -----------------------------------------------------------------------
@@ -256,6 +373,30 @@ class TestScrubUrl:
         assert "k1" not in result
         assert "s2" not in result
         assert "mode=test" in result
+
+    def test_sensitive_query_param_refresh_token(self):
+        url = "https://example.com/auth?refresh_token=abc123"
+        result = scrub_url(url)
+        assert "abc123" not in result
+        assert REDACTED in result
+
+    def test_sensitive_query_param_session_token(self):
+        url = "https://example.com/api?session_token=xyz789"
+        result = scrub_url(url)
+        assert "xyz789" not in result
+        assert REDACTED in result
+
+    def test_sensitive_query_param_auth(self):
+        url = "https://example.com/api?auth=secretvalue&page=1"
+        result = scrub_url(url)
+        assert "secretvalue" not in result
+        assert "page=1" in result
+
+    def test_sensitive_query_param_credentials(self):
+        url = "https://example.com/api?credentials=mytoken123"
+        result = scrub_url(url)
+        assert "mytoken123" not in result
+        assert REDACTED in result
 
 
 # -----------------------------------------------------------------------
