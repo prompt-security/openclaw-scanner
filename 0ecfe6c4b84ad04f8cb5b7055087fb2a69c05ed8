@@ -1,0 +1,29 @@
+pyproject.toml
+  cb569e048da8ac90 30
+test_scrubber.py
+  cb569e048da8ac90 1-318
+scrubber.py
+  cb569e048da8ac90 1-194
+openclaw_usage.py
+  cb569e048da8ac90 23,456,520,529
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "2.0.0",
+  "base_commit_sha": "0ecfe6c4b84ad04f8cb5b7055087fb2a69c05ed8",
+  "prompts": {
+    "cb569e048da8ac90": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8fe0408e-9fd1-43f9-9412-855aa12b3d94",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Amir Barshavit <amir@prompt.security>",
+      "messages": [],
+      "total_additions": 517,
+      "total_deletions": 3,
+      "accepted_lines": 517,
+      "overriden_lines": 0
+    }
+  }
+}
