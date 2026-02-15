@@ -1,14 +1,15 @@
 # OpenClaw Scanner
 
-Scan and analyze OpenClaw/Moltbot installations for usage patterns, active skills, and configuration status.
+Scan and analyze OpenClaw/Moltbot installations — and compatible variants **nanobot** and **picoclaw** — for usage patterns, active skills, and configuration status.
 
 ## Overview
 
-OpenClaw Scanner detects OpenClaw (formerly Moltbot) CLI installations and collects information about:
+OpenClaw Scanner auto-detects which variant is installed and collects information about:
 
 - Active skills and their configurations
 - Session logs and tools/apps usage
 - Cron jobs, plugins, channels, nodes, and models
+- Provider configurations and API key status
 - Security audit results
 
 Supports macOS and Linux.
@@ -89,8 +90,8 @@ Returns JSON with the following fields:
 
 ## Requirements
 
-- OpenClaw, Moltbot, or Clawdbot CLI installed
-- `.openclaw` folder in user home directory
+- OpenClaw, Moltbot, Clawdbot or smaller variants: nanobot picobot CLI installed
+- Config directory such as `.openclaw` directory detected in the user home directory
 
 ## License
 
