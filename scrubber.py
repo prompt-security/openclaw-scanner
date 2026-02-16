@@ -240,6 +240,14 @@ def scrub_url(url: str) -> str:
     return url
 
 
+def _scrub_string(value: str) -> str:
+    """Apply text scrubbing, then URL scrubbing if the result looks like a URL."""
+    scrubbed = scrub_text(value)
+    if scrubbed.startswith(("http://", "https://")) or "://" in scrubbed:
+        scrubbed = scrub_url(scrubbed)
+    return scrubbed
+
+
 def scrub_arguments(args: Any) -> Any:
     """Walk an argument dict/list and apply scrubbing to string values.
 
@@ -250,12 +258,7 @@ def scrub_arguments(args: Any) -> Any:
         result: Dict[str, Any] = {}
         for key, value in args.items():
             if isinstance(value, str):
-                # Always apply text scrubbing first (catches headers, tokens, etc.),
-                # then additionally apply URL scrubbing for URL-shaped values.
-                scrubbed = scrub_text(value)
-                if scrubbed.startswith(("http://", "https://")) or "://" in scrubbed:
-                    scrubbed = scrub_url(scrubbed)
-                result[key] = scrubbed
+                result[key] = _scrub_string(value)
             elif isinstance(value, (dict, list)):
                 result[key] = scrub_arguments(value)
             else:
@@ -266,9 +269,6 @@ def scrub_arguments(args: Any) -> Any:
         return [scrub_arguments(item) for item in args]
 
     if isinstance(args, str):
-        scrubbed = scrub_text(args)
-        if scrubbed.startswith(("http://", "https://")) or "://" in scrubbed:
-            scrubbed = scrub_url(scrubbed)
-        return scrubbed
+        return _scrub_string(args)
 
     return args
