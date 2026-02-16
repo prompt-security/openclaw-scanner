@@ -20,8 +20,8 @@ from typing import Any, Dict, List, Optional, TypedDict
 import certifi
 
 from platform_compat import compat as _compat
-from scrubber import scrub_arguments, scrub_text, scrub_url
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
+from scrubber import scrub_arguments, scrub_url
 from structures import CLAWDBOT_VARIANT_NAMES, CliCommand
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"

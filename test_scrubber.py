@@ -1,6 +1,5 @@
 """Tests for the secret scrubber module."""
-
-import pytest
+# pylint: disable=missing-function-docstring,too-many-public-methods
 
 from scrubber import REDACTED, scrub_arguments, scrub_text, scrub_url
 
