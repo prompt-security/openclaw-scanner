@@ -20,8 +20,8 @@ from typing import Any, Dict, List, Optional
 from platform_compat import compat
 from platform_compat.common import get_system_info
 from structures import ClawdbotInstallInfo
-from scanner_utils import camel_to_snake, has_api_key, mask_api_key, parse_skill_md, read_json_config
-from scrubber import scrub_arguments, scrub_url
+from scanner_utils import aggregate_tool_calls, camel_to_snake, has_api_key, mask_api_key, parse_skill_md, read_json_config
+from scrubber import scrub_arguments
 from output_structures import OutputSkillEntry, OutputSummary, _EMPTY_MISSING
 
 
@@ -335,94 +335,7 @@ def _scan_session_logs(home: Path, vdef: Dict[str, Any]) -> Dict[str, Any]:
         except OSError:
             continue
 
-    # Sort by timestamp (most recent first)
-    tool_calls.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-
-    # Build tools usage summary
-    tools_summary: Dict[str, int] = {}
-    for tc in tool_calls:
-        tname = tc.get("tool_name", "unknown")
-        tools_summary[tname] = tools_summary.get(tname, 0) + 1
-    tools_summary = dict(sorted(tools_summary.items(), key=lambda x: x[1], reverse=True))
-
-    # Build apps usage summary and collect full commands per app
-    apps_summary: Dict[str, int] = {}
-    apps_commands: Dict[str, List[Dict[str, str]]] = {}
-    for tc in tool_calls:
-        command = tc.get("arguments", {}).get("command", "") if isinstance(tc.get("arguments"), dict) else ""
-        timestamp = tc.get("timestamp", "")
-        for app in tc.get("apps_detected", []):
-            apps_summary[app] = apps_summary.get(app, 0) + 1
-            if command:
-                if app not in apps_commands:
-                    apps_commands[app] = []
-                apps_commands[app].append({
-                    "command": command,
-                    "timestamp": timestamp,
-                    "session": tc.get("session", ""),
-                })
-    apps_summary = dict(sorted(apps_summary.items(), key=lambda x: x[1], reverse=True))
-    apps_commands = {app: apps_commands[app] for app in apps_summary if app in apps_commands}
-
-    # Extract web activity from tool calls
-    browser_urls: List[Dict[str, str]] = []
-    fetched_urls: List[Dict[str, str]] = []
-    search_queries: List[Dict[str, str]] = []
-
-    for tc in tool_calls:
-        tool_name = tc.get("tool_name", "")
-        tc_args = tc.get("arguments", {})
-        if not isinstance(tc_args, dict):
-            continue
-        tc_ts = tc.get("timestamp", "")
-        tc_session = tc.get("session", "")
-
-        if tool_name == "browser":
-            url = tc_args.get("targetUrl", "") or tc_args.get("url", "")
-            if url:
-                browser_urls.append({
-                    "url": scrub_url(url),
-                    "action": tc_args.get("action", "open"),
-                    "timestamp": tc_ts,
-                    "session": tc_session,
-                })
-        elif tool_name == "web_fetch":
-            url = tc_args.get("url", "")
-            if url:
-                fetched_urls.append({
-                    "url": scrub_url(url),
-                    "timestamp": tc_ts,
-                    "session": tc_session,
-                })
-        elif tool_name == "web_search":
-            query = tc_args.get("query", "")
-            if query:
-                search_queries.append({
-                    "query": query,
-                    "timestamp": tc_ts,
-                    "session": tc_session,
-                })
-
-    web_activity: Dict[str, Any] = {
-        "browser_urls": browser_urls,
-        "fetched_urls": fetched_urls,
-        "search_queries": search_queries,
-        "browser_urls_count": len(browser_urls),
-        "fetched_urls_count": len(fetched_urls),
-        "search_queries_count": len(search_queries),
-    }
-
-    return {
-        "tool_calls": tool_calls,
-        "tools_summary": tools_summary,
-        "apps_summary": apps_summary,
-        "apps_commands": apps_commands,
-        "web_activity": web_activity,
-        "total_tool_calls": len(tool_calls),
-        "unique_tools": len(tools_summary),
-        "unique_apps": len(apps_summary),
-        "sessions_scanned": len(json_files) + len(jsonl_files),
-    }
+    return aggregate_tool_calls(tool_calls, len(json_files) + len(jsonl_files))
 
 
 def _read_cron_jobs(home: Path, vdef: Dict[str, Any]) -> List[Dict[str, Any]]:
