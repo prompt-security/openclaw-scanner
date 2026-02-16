@@ -5,7 +5,7 @@ All TypedDicts used across openclaw_usage.py and platform_compat/.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 # CLI command as list of string parts (ex. ["/usr/bin/openclaw"] or ["npx", "openclaw"])
 CliCommand = List[str]
@@ -15,16 +15,29 @@ CliCommand = List[str]
 # Variant Detection
 # =============================================================================
 
-# Supported product names (newest → oldest)
-CLAWDBOT_VARIANT_NAMES = ["openclaw", "moltbot", "clawdbot"]
+# Supported product names (ordered newest → oldest, then nano variants)
+CLAWDBOT_VARIANT_NAMES = ["openclaw", "moltbot", "clawdbot", "nanobot", "picoclaw"]
+
+# Scanning strategy: determines which scanning approach to use, based on detected variant
+ScanningStrategy = Literal["openclaw", "nano"]
+
+# Mapping from detected bot variant to scanning strategy to use.
+SCANNING_STRATEGY_MAP: Dict[str, ScanningStrategy] = {
+    "openclaw": "openclaw",
+    "moltbot": "openclaw",
+    "clawdbot": "openclaw",
+    "nanobot": "nano",
+    "picoclaw": "nano",
+}
 
 
 @dataclass
 class ClawdbotInstallInfo:
-    """Information about a detected OpenClaw/Clawdbot installation."""
-    bot_variant: str                    # "openclaw" or "clawdbot"
+    """Information about a detected bot installation (OpenClaw family then nano/pico variants)."""
+    bot_variant: str                    # detected variant: one of CLAWDBOT_VARIANT_NAMES
     bot_cli_cmd: CliCommand             # Command to run bot CLI: ["/usr/bin/openclaw"]
     bot_config_dir: Path                # Bot config directory: ~/.openclaw/
+    scanning_strategy: str              # ScanningStrategy to use with the detected bot_variant scan
 
 
 # =============================================================================

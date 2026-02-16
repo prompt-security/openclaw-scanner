@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES
+from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES, SCANNING_STRATEGY_MAP
 
 
 # Folders that aren't apps - skip these
@@ -264,6 +264,7 @@ def _find_clawdbot_cli_binary(cli_name: str,
 
     # 6. Common fallback locations
     fallbacks = [
+        home / ".local" / "bin" / cli_name,  # pip / pipx / uv installs
         home / ".npm-global" / "bin" / cli_name,
         Path("/usr/local/bin") / cli_name,
     ]
@@ -319,7 +320,8 @@ def detect_clawd_install(extra_paths_fn=None) -> Optional[ClawdbotInstallInfo]:
 
         # Both CLI and config dir must exist for valid detection
         if bot_cli_cmd and bot_config_dir.exists():
-            return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir)
+            scanning_strategy = SCANNING_STRATEGY_MAP.get(name, "openclaw")
+            return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir, scanning_strategy=scanning_strategy)
 
     return None
 
@@ -342,7 +344,8 @@ def build_install_info_from_cli(bot_cli_cmd: CliCommand) -> Optional[ClawdbotIns
     if not bot_config_dir.exists():
         return None
 
-    return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir)
+    scanning_strategy = SCANNING_STRATEGY_MAP.get(name, "openclaw")
+    return ClawdbotInstallInfo(bot_variant=name, bot_cli_cmd=bot_cli_cmd, bot_config_dir=bot_config_dir, scanning_strategy=scanning_strategy)
 
 
 # Legacy alias for backward compatibility with platform_compat/{linux,darwin}.py

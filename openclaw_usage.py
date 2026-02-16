@@ -8,6 +8,7 @@ Outputs JSON with all collected data.
 import argparse
 import json
 import os
+import re
 import ssl
 import subprocess
 import sys
@@ -19,10 +20,13 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 import certifi
 
-from platform_compat import compat as _compat
+from platform_compat import compat
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
-from scrubber import scrub_arguments, scrub_url
-from structures import CLAWDBOT_VARIANT_NAMES, CliCommand
+from scanner_utils import aggregate_tool_calls
+from scrubber import scrub_arguments
+from structures import CLAWDBOT_VARIANT_NAMES, CliCommand, ClawdbotInstallInfo
+from output_structures import OutputSkillEntry, OutputSummary
+from nano_scanner import scan_nano
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
 
@@ -95,20 +99,23 @@ def get_bot_version(bot_cli_cmd: Optional[CliCommand] = None) -> Optional[str]:
         bot_cli_cmd: Bot CLI base command as list of string parts. If None, auto-detects.
 
     Returns:
-        Version string (e.g., "2026.1.24") or None on failure
+        Version string (e.g., "2026.1.24", "v0.1.0") or None on failure
     """
     try:
         stdout = _run_bot_cli(bot_cli_cmd, "--version", timeout=10)
-        # Output is typically just the version number, possibly with prefix
-        version = stdout.strip().split()[-1]  # Take last word (handles "v2026.1.24" or "2026.1.24")
-        return version
+        # Extract semver-like version from first line of output.
+        # Handles decorated output like "🦞 picoclaw v0.1.1\n  Build: ...\n  Go: go1.25.7"
+        # and "🐈 nanobot v0.1.0" and plain "2026.1.24".
+        first_line = stdout.strip().splitlines()[0] if stdout.strip() else ""
+        match = re.search(r"v?\d+\.\d+(?:\.\d+)?", first_line)
+        return match.group(0) if match else first_line.strip() or None
     except CliExecError:
         return None
 
 
 class SkillsResult(TypedDict, total=False):
     """Return type for get_active_skills()."""
-    active_skills: List[Dict[str, Any]]  # Skill structure from CLI
+    active_skills: List[OutputSkillEntry]  # Shape from openclaw skills list --json
     count: int
     total: int           # Only on success
     error: str           # Only on error
@@ -455,7 +462,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
                             if isinstance(item, dict) and item.get("type") == "toolCall":
                                 arguments = scrub_arguments(item.get("arguments", {}))
                                 command = arguments.get("command", "")
-                                apps = _compat.extract_app_names(command) if command else []
+                                apps = compat.extract_app_names(command) if command else []
 
                                 tool_calls.append({
                                     "tool_name": item.get("name"),
@@ -470,95 +477,8 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
         except Exception:
             continue
 
-    # Sort by timestamp (most recent first)
-    tool_calls.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-
-    # Build tools usage summary
-    tools_summary: Dict[str, int] = {}
-    for tc in tool_calls:
-        name = tc.get("tool_name", "unknown")
-        tools_summary[name] = tools_summary.get(name, 0) + 1
-
-    # Sort by count (descending)
-    tools_summary = dict(sorted(tools_summary.items(), key=lambda x: x[1], reverse=True))
-
-    # Build apps usage summary and collect full commands per app
-    apps_summary: Dict[str, int] = {}
-    apps_commands: Dict[str, List[Dict[str, str]]] = {}
-    for tc in tool_calls:
-        command = tc.get("arguments", {}).get("command", "")
-        timestamp = tc.get("timestamp", "")
-        for app in tc.get("apps_detected", []):
-            apps_summary[app] = apps_summary.get(app, 0) + 1
-            if command:
-                if app not in apps_commands:
-                    apps_commands[app] = []
-                apps_commands[app].append({
-                    "command": command,
-                    "timestamp": timestamp,
-                    "session": tc.get("session", ""),
-                })
-
-    apps_summary = dict(sorted(apps_summary.items(), key=lambda x: x[1], reverse=True))
-    apps_commands = {app: apps_commands[app] for app in apps_summary if app in apps_commands}
-
-    # Extract web activity from tool calls (browser, web_fetch, web_search)
-    browser_urls: List[Dict[str, str]] = []
-    fetched_urls: List[Dict[str, str]] = []
-    search_queries: List[Dict[str, str]] = []
-
-    for tc in tool_calls:
-        tool_name = tc.get("tool_name", "")
-        tc_args = tc.get("arguments", {})
-        tc_timestamp = tc.get("timestamp", "")
-        tc_session = tc.get("session", "")
-
-        if tool_name == "browser":
-            url = tc_args.get("targetUrl", "") or tc_args.get("url", "")
-            if url:
-                browser_urls.append({
-                    "url": scrub_url(url),
-                    "action": tc_args.get("action", "open"),
-                    "timestamp": tc_timestamp,
-                    "session": tc_session,
-                })
-        elif tool_name == "web_fetch":
-            url = tc_args.get("url", "")
-            if url:
-                fetched_urls.append({
-                    "url": scrub_url(url),
-                    "timestamp": tc_timestamp,
-                    "session": tc_session,
-                })
-        elif tool_name == "web_search":
-            query = tc_args.get("query", "")
-            if query:
-                search_queries.append({
-                    "query": query,
-                    "timestamp": tc_timestamp,
-                    "session": tc_session,
-                })
-
-    web_activity: Dict[str, Any] = {
-        "browser_urls": browser_urls,
-        "fetched_urls": fetched_urls,
-        "search_queries": search_queries,
-        "browser_urls_count": len(browser_urls),
-        "fetched_urls_count": len(fetched_urls),
-        "search_queries_count": len(search_queries),
-    }
-
-    return {
-        "tool_calls": tool_calls,
-        "tools_summary": tools_summary,
-        "apps_summary": apps_summary,
-        "apps_commands": apps_commands,
-        "web_activity": web_activity,
-        "total_tool_calls": len(tool_calls),
-        "unique_tools": len(tools_summary),
-        "unique_apps": len(apps_summary),
-        "sessions_scanned": len([f for f in session_files if f.name != "sessions.json"])
-    }
+    sessions_count = len([f for f in session_files if f.name != "sessions.json"])
+    return aggregate_tool_calls(tool_calls, sessions_count)
 
 
 def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True) -> Dict[str, Any]:
@@ -632,6 +552,106 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
             "success": False,
             "error": str(e)
         }
+
+
+def scan_openclaw(install_info: ClawdbotInstallInfo, full: bool = False, limit: int = 50) -> Dict[str, Any]:
+    """Scan an OpenClaw/Clawdbot variant using CLI commands.
+    Returns result dict with scan_timestamp, bot_variant, system_info, summary, etc.
+    """
+    bot_cli_cmd = install_info.bot_cli_cmd
+    bot_cli_str = " ".join(install_info.bot_cli_cmd)
+    bot_config_dir = install_info.bot_config_dir
+    bot_variant = install_info.bot_variant
+    bot_version = get_bot_version(bot_cli_cmd)
+
+    # Collect scan data
+    skills_result = get_active_skills(bot_cli_cmd)
+    logs_result = scan_session_logs(bot_config_dir)
+    system_info = get_system_info()
+    cron_result = get_cron_jobs(bot_cli_cmd)
+    security_result = get_security_audit(bot_cli_cmd)  # CISO-critical
+    plugins_result = get_plugins_list(bot_cli_cmd)  # attack surface
+    channels_result = get_channels_list(bot_cli_cmd)  # external integrations
+    nodes_result = get_nodes_list(bot_cli_cmd)  # remote connections
+    models_result = get_models_status(bot_cli_cmd)  # auth posture
+    agent_config = get_agent_config(bot_cli_cmd)  # autonomous mode
+    exec_approvals = get_exec_approvals(bot_cli_cmd)  # permissions
+
+    # Limit tool calls in output
+    logs_result["tool_calls"] = logs_result["tool_calls"][:limit]
+
+    # Build summary
+    active_skills_list = skills_result.get("active_skills", [])
+    apps_summary = logs_result.get("apps_summary", {})
+    tool_names = list(logs_result.get("tools_summary", {}).keys())
+
+    summary: OutputSummary = {
+        "active_skills": active_skills_list,
+        "active_skills_count": len(active_skills_list),
+        "apps_detected": list(apps_summary.keys()),
+        "apps_detected_count": len(apps_summary),
+        "apps_call_count": apps_summary,
+        "apps_commands": logs_result.get("apps_commands", {}),
+        "tools_used": tool_names,
+        "tools_used_count": len(tool_names),
+        "tools_call_count": logs_result.get("tools_summary", {}),
+        "total_tool_calls": logs_result.get("total_tool_calls", 0),
+        "sessions_scanned": logs_result.get("sessions_scanned", 0),
+        "cron_jobs": cron_result.get("cron_jobs", []),
+        "cron_jobs_count": cron_result.get("count", 0),
+        # CISO-relevant data
+        "security_audit": security_result,
+        "active_plugins": plugins_result.get("active_plugins", []),
+        "active_plugins_count": plugins_result.get("count", 0),
+        "channels": channels_result.get("channels", []),
+        "channels_count": channels_result.get("count", 0),
+        "nodes": nodes_result.get("nodes", []),
+        "nodes_count": nodes_result.get("count", 0),
+        "models_status": models_result,
+        # Agent config (autonomous mode)
+        "autonomous_mode": agent_config.get("autonomous_mode"),
+        "max_concurrent": agent_config.get("max_concurrent"),
+        # Exec approvals (permissions)
+        "permissions": exec_approvals.get("permissions", []),
+        "permissions_count": exec_approvals.get("permissions_count", 0),
+        # Web activity (browser, fetch, search)
+        "web_activity": logs_result.get("web_activity", {}),
+    }
+
+    # Build output based on --full flag
+    if full:
+        result: Dict[str, Any] = {
+            "scan_timestamp": datetime.now().isoformat(),
+            "bot_cli_cmd": bot_cli_str,
+            "bot_variant": bot_variant,
+            "bot_version": bot_version,
+            "system_info": system_info,
+            "bot_config_dir": str(bot_config_dir),
+            "summary": summary,
+            "active_skills": skills_result,
+            "session_analysis": logs_result,
+            "cron_jobs": cron_result,
+            # CISO-relevant detailed data
+            "security_audit": security_result,
+            "active_plugins": plugins_result,
+            "channels": channels_result,
+            "nodes": nodes_result,
+            "models_status": models_result,
+            "agent_config": agent_config,
+            "exec_approvals": exec_approvals,
+        }
+    else:
+        result = {
+            "scan_timestamp": datetime.now().isoformat(),
+            "bot_cli_cmd": bot_cli_str,
+            "bot_variant": bot_variant,
+            "bot_version": bot_version,
+            "bot_config_dir": str(bot_config_dir),
+            "system_info": system_info,
+            "summary": summary
+        }
+
+    return result
 
 
 def main():
@@ -708,98 +728,20 @@ def main():
         print(json.dumps(result, indent=None if args.compact else 2))
         sys.exit(1)
 
-    bot_cli_cmd = install_info.bot_cli_cmd
-    bot_cli_str = " ".join(install_info.bot_cli_cmd)
-    bot_config_dir = install_info.bot_config_dir
-    bot_variant = install_info.bot_variant
-    bot_version = get_bot_version(bot_cli_cmd)
-
-    # Collect scan data
-    skills_result = get_active_skills(bot_cli_cmd)
-    logs_result = scan_session_logs(bot_config_dir)
-    system_info = get_system_info()
-    cron_result = get_cron_jobs(bot_cli_cmd)
-    security_result = get_security_audit(bot_cli_cmd)  # CISO-critical
-    plugins_result = get_plugins_list(bot_cli_cmd)  # attack surface
-    channels_result = get_channels_list(bot_cli_cmd)  # external integrations
-    nodes_result = get_nodes_list(bot_cli_cmd)  # remote connections
-    models_result = get_models_status(bot_cli_cmd)  # auth posture
-    agent_config = get_agent_config(bot_cli_cmd)  # autonomous mode
-    exec_approvals = get_exec_approvals(bot_cli_cmd)  # permissions
-
-    # Limit tool calls in output
-    logs_result["tool_calls"] = logs_result["tool_calls"][:args.limit]
-
-    # Build summary
-    active_skills_list = skills_result.get("active_skills", [])
-    apps_summary = logs_result.get("apps_summary", {})
-    tool_names = list(logs_result.get("tools_summary", {}).keys())
-
-    summary = {
-        "active_skills": active_skills_list,
-        "active_skills_count": len(active_skills_list),
-        "apps_detected": list(apps_summary.keys()),
-        "apps_detected_count": len(apps_summary),
-        "apps_call_count": apps_summary,
-        "apps_commands": logs_result.get("apps_commands", {}),
-        "tools_used": tool_names,
-        "tools_used_count": len(tool_names),
-        "tools_call_count": logs_result.get("tools_summary", {}),
-        "total_tool_calls": logs_result.get("total_tool_calls", 0),
-        "sessions_scanned": logs_result.get("sessions_scanned", 0),
-        "cron_jobs": cron_result.get("cron_jobs", []),
-        "cron_jobs_count": cron_result.get("count", 0),
-        # CISO-relevant data
-        "security_audit": security_result,
-        "active_plugins": plugins_result.get("active_plugins", []),
-        "active_plugins_count": plugins_result.get("count", 0),
-        "channels": channels_result.get("channels", []),
-        "channels_count": channels_result.get("count", 0),
-        "nodes": nodes_result.get("nodes", []),
-        "nodes_count": nodes_result.get("count", 0),
-        "models_status": models_result,
-        # Agent config (autonomous mode)
-        "autonomous_mode": agent_config.get("autonomous_mode"),
-        "max_concurrent": agent_config.get("max_concurrent"),
-        # Exec approvals (permissions)
-        "permissions": exec_approvals.get("permissions", []),
-        "permissions_count": exec_approvals.get("permissions_count", 0),
-        # Web activity (browser, fetch, search)
-        "web_activity": logs_result.get("web_activity", {}),
-    }
-
-    # Build output based on --full flag
-    if args.full:
-        result = {
-            "scan_timestamp": datetime.now().isoformat(),
-            "bot_cli_cmd": bot_cli_str,
-            "bot_variant": bot_variant,
-            "bot_version": bot_version,
-            "system_info": system_info,
-            "bot_config_dir": str(bot_config_dir),
-            "summary": summary,
-            "active_skills": skills_result,
-            "session_analysis": logs_result,
-            "cron_jobs": cron_result,
-            # CISO-relevant detailed data
-            "security_audit": security_result,
-            "active_plugins": plugins_result,
-            "channels": channels_result,
-            "nodes": nodes_result,
-            "models_status": models_result,
-            "agent_config": agent_config,
-            "exec_approvals": exec_approvals,
-        }
+    # Scan using strategy-appropriate function
+    if install_info.scanning_strategy == "nano":
+        result = scan_nano(install_info, full=args.full, limit=args.limit)
     else:
+        result = scan_openclaw(install_info, full=args.full, limit=args.limit)
+
+    if result is None:
         result = {
-            "scan_timestamp": datetime.now().isoformat(),
-            "bot_cli_cmd": bot_cli_str,
-            "bot_variant": bot_variant,
-            "bot_version": bot_version,
-            "bot_config_dir": str(bot_config_dir),
-            "system_info": system_info,
-            "summary": summary
+            "error": f"{install_info.bot_variant} detected but scan failed",
+            "bot_variant": install_info.bot_variant,
+            "bot_config_dir": str(install_info.bot_config_dir),
         }
+        print(json.dumps(result, indent=None if args.compact else 2))
+        sys.exit(1)
 
     # Scrub the entire result to redact any remaining secrets/tokens
     result = scrub_arguments(result)
