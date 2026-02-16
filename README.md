@@ -14,6 +14,16 @@ OpenClaw Scanner auto-detects which variant is installed and collects informatio
 
 Supports macOS and Linux.
 
+### Supported Variants
+
+| Variant | Language | Config Dir |
+|---------|----------|------------|
+| **OpenClaw** | Node.js | `~/.openclaw/` |
+| **Clawdbot** | Node.js | `~/.clawdbot/` |
+| **Moltbot** | Node.js | `~/.moltbot/` |
+| **picoclaw** | Go | `~/.picoclaw/` |
+| **nanobot** | Python | `~/.nanobot/` |
+
 ## Installation
 
 ### Option 1: Standalone Executable
@@ -87,11 +97,6 @@ Returns JSON with the following fields:
 | `nodes` | Available nodes |
 | `models` | Available models |
 | `session_analysis` | Usage statistics from session logs |
-
-## Requirements
-
-- OpenClaw, Moltbot, Clawdbot or smaller variants: nanobot picoclaw CLI installed
-- Config directory such as `.openclaw` detected in the user home directory
 
 ## License
 

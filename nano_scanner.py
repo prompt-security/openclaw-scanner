@@ -9,6 +9,7 @@ schema, so the backend receives the same JSON shape regardless of which variant
 was detected.
 """
 
+import json
 import re
 import shutil
 import subprocess
@@ -16,9 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from platform_compat import compat
 from platform_compat.common import get_system_info
 from structures import ClawdbotInstallInfo
 from scanner_utils import camel_to_snake, has_api_key, mask_api_key, parse_skill_md, read_json_config
+from scrubber import scrub_arguments, scrub_url
 from output_structures import OutputSkillEntry, OutputSummary, _EMPTY_MISSING
 
 
@@ -200,6 +203,228 @@ def _scan_skills(home: Path, vdef: Dict[str, Any]) -> List[OutputSkillEntry]:
     return skills
 
 
+def _scan_session_logs(home: Path, vdef: Dict[str, Any]) -> Dict[str, Any]:
+    """Parse session logs for tool calls, app usage, and web activity.
+
+    Picoclaw stores sessions as plain JSON files (one per session key),
+    each containing a flat ``messages[]`` array with OpenAI-style tool_calls
+    that include function name and arguments (JSON string).
+
+    Nanobot uses JSONL at ``~/.nanobot/sessions/*.jsonl`` — line 1 is a
+    metadata header (``_type: "metadata"``), lines 2+ are messages with
+    ``{role, content, timestamp}``.  Assistant messages store only tool
+    *names* (``tools_used: ["read_file", "exec"]``), not arguments.
+
+    Both formats are parsed; secrets are scrubbed inline for picoclaw args.
+    Returns all tool calls (caller applies limit, matching OC pattern).
+    """
+    sessions_dir = home / vdef["sessions_path"]
+    empty: Dict[str, Any] = {
+        "tool_calls": [],
+        "tools_summary": {},
+        "apps_summary": {},
+        "apps_commands": {},
+        "web_activity": {
+            "browser_urls": [],
+            "fetched_urls": [],
+            "search_queries": [],
+            "browser_urls_count": 0,
+            "fetched_urls_count": 0,
+            "search_queries_count": 0,
+        },
+        "total_tool_calls": 0,
+        "unique_tools": 0,
+        "unique_apps": 0,
+        "sessions_scanned": 0,
+    }
+
+    if not sessions_dir.is_dir():
+        return empty
+
+    # Collect both .json (picoclaw) and .jsonl (nanobot) session files
+    json_files = sorted(sessions_dir.glob("*.json"))
+    jsonl_files = sorted(sessions_dir.glob("*.jsonl"))
+
+    if not json_files and not jsonl_files:
+        return empty
+
+    tool_calls: List[Dict[str, Any]] = []
+
+    # --- Picoclaw: plain JSON with OpenAI-style tool_calls + arguments ---
+    for sf in json_files:
+        try:
+            with open(sf, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError):
+            continue
+
+        session_key = data.get("key", sf.stem)
+        session_ts = data.get("updated") or data.get("created") or ""
+
+        for msg in data.get("messages", []):
+            if msg.get("role") != "assistant":
+                continue
+            for tc in msg.get("tool_calls", []):
+                func = tc.get("function", {})
+                tool_name = func.get("name", "")
+                raw_args = func.get("arguments", "{}")
+
+                # arguments is a JSON string in picoclaw format
+                try:
+                    arguments = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                except (json.JSONDecodeError, TypeError):
+                    arguments = {}
+
+                # Inline scrubbing — secrets never stored in intermediate vars
+                arguments = scrub_arguments(arguments)
+
+                command = arguments.get("command", "") if isinstance(arguments, dict) else ""
+                apps = compat.extract_app_names(command) if command else []
+
+                tool_calls.append({
+                    "tool_name": tool_name,
+                    "tool_id": tc.get("id", ""),
+                    "timestamp": session_ts,
+                    "session": session_key,
+                    "arguments": arguments,
+                    "apps_detected": apps,
+                })
+
+    # --- Nanobot: JSONL (line 1 = metadata, lines 2+ = messages) ---
+    # Nanobot saves only tool *names* — no arguments, no tool_call ids.
+    for sf in jsonl_files:
+        session_key = sf.stem.replace("_", ":")  # cli_direct → cli:direct
+        session_ts = ""
+
+        try:
+            with open(sf, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    # Metadata header — grab updated timestamp
+                    if data.get("_type") == "metadata":
+                        session_ts = data.get("updated_at") or data.get("created_at") or ""
+                        continue
+
+                    # Only assistant messages carry tool info
+                    if data.get("role") != "assistant":
+                        continue
+
+                    tools_used = data.get("tools_used")
+                    if not tools_used or not isinstance(tools_used, list):
+                        continue
+
+                    msg_ts = data.get("timestamp", session_ts)
+                    for tool_name in tools_used:
+                        if not isinstance(tool_name, str):
+                            continue
+                        tool_calls.append({
+                            "tool_name": tool_name,
+                            "tool_id": "",
+                            "timestamp": msg_ts,
+                            "session": session_key,
+                            "arguments": {},  # nanobot stores names only
+                            "apps_detected": [],
+                        })
+        except OSError:
+            continue
+
+    # Sort by timestamp (most recent first)
+    tool_calls.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+    # Build tools usage summary
+    tools_summary: Dict[str, int] = {}
+    for tc in tool_calls:
+        tname = tc.get("tool_name", "unknown")
+        tools_summary[tname] = tools_summary.get(tname, 0) + 1
+    tools_summary = dict(sorted(tools_summary.items(), key=lambda x: x[1], reverse=True))
+
+    # Build apps usage summary and collect full commands per app
+    apps_summary: Dict[str, int] = {}
+    apps_commands: Dict[str, List[Dict[str, str]]] = {}
+    for tc in tool_calls:
+        command = tc.get("arguments", {}).get("command", "") if isinstance(tc.get("arguments"), dict) else ""
+        timestamp = tc.get("timestamp", "")
+        for app in tc.get("apps_detected", []):
+            apps_summary[app] = apps_summary.get(app, 0) + 1
+            if command:
+                if app not in apps_commands:
+                    apps_commands[app] = []
+                apps_commands[app].append({
+                    "command": command,
+                    "timestamp": timestamp,
+                    "session": tc.get("session", ""),
+                })
+    apps_summary = dict(sorted(apps_summary.items(), key=lambda x: x[1], reverse=True))
+    apps_commands = {app: apps_commands[app] for app in apps_summary if app in apps_commands}
+
+    # Extract web activity from tool calls
+    browser_urls: List[Dict[str, str]] = []
+    fetched_urls: List[Dict[str, str]] = []
+    search_queries: List[Dict[str, str]] = []
+
+    for tc in tool_calls:
+        tool_name = tc.get("tool_name", "")
+        tc_args = tc.get("arguments", {})
+        if not isinstance(tc_args, dict):
+            continue
+        tc_ts = tc.get("timestamp", "")
+        tc_session = tc.get("session", "")
+
+        if tool_name == "browser":
+            url = tc_args.get("targetUrl", "") or tc_args.get("url", "")
+            if url:
+                browser_urls.append({
+                    "url": scrub_url(url),
+                    "action": tc_args.get("action", "open"),
+                    "timestamp": tc_ts,
+                    "session": tc_session,
+                })
+        elif tool_name == "web_fetch":
+            url = tc_args.get("url", "")
+            if url:
+                fetched_urls.append({
+                    "url": scrub_url(url),
+                    "timestamp": tc_ts,
+                    "session": tc_session,
+                })
+        elif tool_name == "web_search":
+            query = tc_args.get("query", "")
+            if query:
+                search_queries.append({
+                    "query": query,
+                    "timestamp": tc_ts,
+                    "session": tc_session,
+                })
+
+    web_activity: Dict[str, Any] = {
+        "browser_urls": browser_urls,
+        "fetched_urls": fetched_urls,
+        "search_queries": search_queries,
+        "browser_urls_count": len(browser_urls),
+        "fetched_urls_count": len(fetched_urls),
+        "search_queries_count": len(search_queries),
+    }
+
+    return {
+        "tool_calls": tool_calls,
+        "tools_summary": tools_summary,
+        "apps_summary": apps_summary,
+        "apps_commands": apps_commands,
+        "web_activity": web_activity,
+        "total_tool_calls": len(tool_calls),
+        "unique_tools": len(tools_summary),
+        "unique_apps": len(apps_summary),
+        "sessions_scanned": len(json_files) + len(jsonl_files),
+    }
+
+
 def _read_cron_jobs(home: Path, vdef: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Read cron jobs from jobs.json."""
     cron_path = home / vdef["cron_path"]
@@ -271,6 +496,10 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
     # Scan filesystem
     skills = _scan_skills(home, vdef)
     cron_jobs = _read_cron_jobs(home, vdef)
+    session_logs = _scan_session_logs(home, vdef)
+
+    # Limit tool calls in output (same pattern as scan_openclaw)
+    session_logs["tool_calls"] = session_logs["tool_calls"][:limit]
 
     # Build report in the same shape as openclaw_usage.py main() produces
     # This ensures backend compatibility
@@ -320,28 +549,23 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
         ),
     }
 
-    # Empty but structurally valid web activity
-    web_activity: Dict[str, Any] = {
-        "browser_urls": [],
-        "fetched_urls": [],
-        "search_queries": [],
-        "browser_urls_count": 0,
-        "fetched_urls_count": 0,
-        "search_queries_count": 0,
-    }
+    # Session-derived data — populate summary from parsed session logs
+    sl_tools = session_logs["tools_summary"]
+    sl_apps = session_logs["apps_summary"]
+    web_activity = session_logs["web_activity"]
 
     summary: OutputSummary = {
         "active_skills": skills,
         "active_skills_count": len(skills),
-        "apps_detected": [],
-        "apps_detected_count": 0,
-        "apps_call_count": {},
-        "apps_commands": {},
-        "tools_used": [],
-        "tools_used_count": 0,
-        "tools_call_count": {},
-        "total_tool_calls": 0,
-        "sessions_scanned": 0,
+        "apps_detected": list(sl_apps.keys()),
+        "apps_detected_count": len(sl_apps),
+        "apps_call_count": sl_apps,
+        "apps_commands": session_logs["apps_commands"],
+        "tools_used": list(sl_tools.keys()),
+        "tools_used_count": len(sl_tools),
+        "tools_call_count": sl_tools,
+        "total_tool_calls": session_logs["total_tool_calls"],
+        "sessions_scanned": session_logs["sessions_scanned"],
         "cron_jobs": cron_jobs,
         "cron_jobs_count": len(cron_jobs),
         # CISO-relevant
@@ -381,17 +605,7 @@ def scan_nano(install_info: ClawdbotInstallInfo, full: bool = False, limit: int 
             "count": len(skills),
             "total": len(skills),
         }
-        result["session_analysis"] = {  # no data — no session log parsing yet
-            "tool_calls": [],
-            "tools_summary": {},
-            "apps_summary": {},
-            "apps_commands": {},
-            "web_activity": web_activity,
-            "total_tool_calls": 0,
-            "unique_tools": 0,
-            "unique_apps": 0,
-            "sessions_scanned": 0,
-        }
+        result["session_analysis"] = session_logs
         result["cron_jobs"] = {
             "cron_jobs": cron_jobs,
             "count": len(cron_jobs),

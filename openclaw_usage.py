@@ -20,8 +20,9 @@ from typing import Any, Dict, List, Optional, TypedDict
 
 import certifi
 
-from platform_compat import compat as _compat
+from platform_compat import compat
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
+from scrubber import scrub_arguments, scrub_url
 from structures import CLAWDBOT_VARIANT_NAMES, CliCommand, ClawdbotInstallInfo
 from output_structures import OutputSkillEntry, OutputSummary
 from nano_scanner import scan_nano
@@ -458,9 +459,9 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
 
                         for item in content:
                             if isinstance(item, dict) and item.get("type") == "toolCall":
-                                arguments = item.get("arguments", {})
+                                arguments = scrub_arguments(item.get("arguments", {}))
                                 command = arguments.get("command", "")
-                                apps = _compat.extract_app_names(command) if command else []
+                                apps = compat.extract_app_names(command) if command else []
 
                                 tool_calls.append({
                                     "tool_name": item.get("name"),
@@ -522,7 +523,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
             url = tc_args.get("targetUrl", "") or tc_args.get("url", "")
             if url:
                 browser_urls.append({
-                    "url": url,
+                    "url": scrub_url(url),
                     "action": tc_args.get("action", "open"),
                     "timestamp": tc_timestamp,
                     "session": tc_session,
@@ -531,7 +532,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
             url = tc_args.get("url", "")
             if url:
                 fetched_urls.append({
-                    "url": url,
+                    "url": scrub_url(url),
                     "timestamp": tc_timestamp,
                     "session": tc_session,
                 })
@@ -827,6 +828,9 @@ def main():
         }
         print(json.dumps(result, indent=None if args.compact else 2))
         sys.exit(1)
+
+    # Scrub the entire result to redact any remaining secrets/tokens
+    result = scrub_arguments(result)
 
     # Send report to API if scanner-report-api-key is provided
     if args.scanner_report_api_key:

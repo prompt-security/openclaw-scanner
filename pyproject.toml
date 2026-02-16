@@ -26,6 +26,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 include = [
     "openclaw_usage.py",
+    "scrubber.py",
     "structures.py",
     "output_structures.py",
     "nano_scanner.py",
