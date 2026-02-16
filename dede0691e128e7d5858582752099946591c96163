@@ -1,0 +1,23 @@
+scrubber.py
+  ed34684f66663991 243-250,261,272
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "2.0.0",
+  "base_commit_sha": "dede0691e128e7d5858582752099946591c96163",
+  "prompts": {
+    "ed34684f66663991": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e8f62236-b0be-430c-93fd-98f28f6d440e",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Amir Barshavit <amir@prompt.security>",
+      "messages": [],
+      "total_additions": 10,
+      "total_deletions": 10,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
