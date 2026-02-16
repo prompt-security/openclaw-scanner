@@ -6,7 +6,7 @@ URLs, and argument dicts before they reach stdout or the API endpoint.
 """
 
 import re
-from typing import Any, Dict, List, Union
+from typing import Any, Callable, Dict, List, Union
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 REDACTED = "***REDACTED***"
@@ -87,7 +87,7 @@ _TIER1_PATTERNS: List[re.Pattern[str]] = [
 # Tier 2 — Contextual patterns (need surrounding context)
 # ---------------------------------------------------------------------------
 
-_TIER2_PATTERNS: List[tuple[re.Pattern[str], Union[str, callable]]] = [
+_TIER2_PATTERNS: List[tuple[re.Pattern[str], Union[str, Callable]]] = [
     # Env var assignments: API_KEY=xxx, export TOKEN="xxx"
     (
         re.compile(
