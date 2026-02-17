@@ -44,8 +44,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Install dependencies and PyInstaller
+        run: pip install . pyinstaller
 
       - name: Build executable
         run: |
@@ -53,6 +53,9 @@ jobs:
             --hidden-import platform_compat.darwin \
             --hidden-import platform_compat.linux \
             --hidden-import platform_compat.common \
+            --hidden-import nano_scanner \
+            --hidden-import scanner_utils \
+            --hidden-import output_structures \
             openclaw_usage.py
 
       - name: Upload executable artifact
