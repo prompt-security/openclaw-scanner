@@ -481,6 +481,49 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     return aggregate_tool_calls(tool_calls, sessions_count)
 
 
+MAX_PAYLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _trim_payload(payload: Dict[str, Any]) -> bytes:
+    """Serialize payload to JSON, trimming oldest entries from large lists if it exceeds MAX_PAYLOAD_BYTES."""
+    data = json.dumps(payload).encode("utf-8")
+    if len(data) <= MAX_PAYLOAD_BYTES:
+        return data
+
+    # Fields to trim, in priority order (most expendable first).
+    # Each is a dot-path into the payload dict.
+    trimmable = [
+        ("session_analysis", "tool_calls"),
+        ("summary", "apps_commands"),
+        ("session_analysis", "web_activity", "browser_urls"),
+        ("session_analysis", "web_activity", "fetched_urls"),
+        ("session_analysis", "web_activity", "search_queries"),
+        ("summary", "web_activity", "browser_urls"),
+        ("summary", "web_activity", "fetched_urls"),
+        ("summary", "web_activity", "search_queries"),
+    ]
+
+    for path in trimmable:
+        # Navigate to parent, get the list
+        obj = payload
+        for key in path[:-1]:
+            obj = obj.get(key, {}) if isinstance(obj, dict) else {}
+        field = path[-1]
+        if not isinstance(obj.get(field), list):
+            continue
+        lst = obj[field]
+        # Progressively halve the list until under limit
+        while len(lst) > 1:
+            lst = lst[: len(lst) // 2]
+            obj[field] = lst
+            data = json.dumps(payload).encode("utf-8")
+            if len(data) <= MAX_PAYLOAD_BYTES:
+                return data
+
+    # If still too large after all trimming, return what we have
+    return json.dumps(payload).encode("utf-8")
+
+
 def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True) -> Dict[str, Any]:
     """Send scan report to the API endpoint.
 
@@ -515,7 +558,7 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
     try:
         req = urllib.request.Request(
             API_ENDPOINT,
-            data=json.dumps(payload).encode("utf-8"),
+            data=_trim_payload(payload),
             headers=headers,
             method="POST"
         )
@@ -530,10 +573,13 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else ""
+        error_msg = f"HTTP {e.code}: {e.reason}"
+        if e.code == 413:
+            error_msg += " - payload too large even after trimming; try reducing --limit"
         return {
             "success": False,
             "status_code": e.code,
-            "error": f"HTTP {e.code}: {e.reason}",
+            "error": error_msg,
             "response": error_body
         }
     except urllib.error.URLError as e:
