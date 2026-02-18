@@ -6,6 +6,7 @@ Outputs JSON with all collected data.
 """
 
 import argparse
+import gzip
 import json
 import os
 import re
@@ -481,6 +482,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
     return aggregate_tool_calls(tool_calls, sessions_count)
 
 
+
 def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True) -> Dict[str, Any]:
     """Send scan report to the API endpoint.
 
@@ -495,8 +497,12 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
     # Remove api_key from the payload (it's used in header, not body)
     payload = {k: v for k, v in report_data.items() if k != "api_key"}
 
+    data = json.dumps(payload).encode("utf-8")
+    compressed = gzip.compress(data)
+
     headers = {
         "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
         "Authorization": f"Bearer {api_key}",
         "User-Agent": "OpenClaw-Scanner/1.0"
     }
@@ -515,7 +521,7 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
     try:
         req = urllib.request.Request(
             API_ENDPOINT,
-            data=json.dumps(payload).encode("utf-8"),
+            data=compressed,
             headers=headers,
             method="POST"
         )
@@ -530,10 +536,11 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
 
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else ""
+        error_msg = f"HTTP {e.code}: {e.reason}"
         return {
             "success": False,
             "status_code": e.code,
-            "error": f"HTTP {e.code}: {e.reason}",
+            "error": error_msg,
             "response": error_body
         }
     except urllib.error.URLError as e:
