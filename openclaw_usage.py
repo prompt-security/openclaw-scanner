@@ -25,9 +25,10 @@ from platform_compat import compat
 from platform_compat.common import build_install_info_from_cli, detect_clawd_install, find_bot_cli_only, get_system_info
 from scanner_utils import aggregate_tool_calls
 from scrubber import scrub_arguments
-from structures import CLAWDBOT_VARIANT_NAMES, CliCommand, ClawdbotInstallInfo
+from structures import CLAWDBOT_VARIANT_NAMES, VARIANT_CONFIG_DIR_MAP, CliCommand, ClawdbotInstallInfo
 from output_structures import OutputSkillEntry, OutputSummary
 from nano_scanner import scan_nano
+from cowork_scanner import scan_cowork
 
 API_ENDPOINT = "https://oneclaw.prompt.security/api/reports"
 
@@ -483,7 +484,7 @@ def scan_session_logs(bot_config_dir: Path) -> Dict[str, Any]:
 
 
 
-def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True) -> Dict[str, Any]:
+def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = True, api_url: Optional[str] = None) -> Dict[str, Any]:
     """Send scan report to the API endpoint.
 
     Args:
@@ -498,14 +499,16 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
     payload = {k: v for k, v in report_data.items() if k != "api_key"}
 
     data = json.dumps(payload).encode("utf-8")
-    compressed = gzip.compress(data)
 
     headers = {
         "Content-Type": "application/json",
-        "Content-Encoding": "gzip",
         "Authorization": f"Bearer {api_key}",
         "User-Agent": "OpenClaw-Scanner/1.0"
     }
+
+    endpoint = api_url or API_ENDPOINT
+    data = gzip.compress(data)
+    headers["Content-Encoding"] = "gzip"
 
     response = None
     response_body = None
@@ -520,8 +523,8 @@ def send_report(report_data: Dict[str, Any], api_key: str, verify_ssl: bool = Tr
 
     try:
         req = urllib.request.Request(
-            API_ENDPOINT,
-            data=compressed,
+            endpoint,
+            data=data,
             headers=headers,
             method="POST"
         )
@@ -699,6 +702,12 @@ def main():
         action="store_true",
         help="Disable SSL certificate verification (use only if behind a corporate proxy)"
     )
+    parser.add_argument(
+        "--api-url",
+        type=str,
+        default=None,
+        help="Override API endpoint URL (default: production endpoint)"
+    )
 
     args = parser.parse_args()
 
@@ -712,7 +721,7 @@ def main():
         # Detect failed - figure out why for better error message
         home = Path.home()
         checked_variants = CLAWDBOT_VARIANT_NAMES
-        checked_config_paths = [str(home / f".{v}") for v in checked_variants]
+        checked_config_paths = [str(home / VARIANT_CONFIG_DIR_MAP.get(v, f".{v}")) for v in checked_variants]
 
         # Check if CLI exists but config dir doesn't (installed but never used)
         cli_only = find_bot_cli_only()
@@ -724,7 +733,7 @@ def main():
                 "bot_variant": variant_name,
                 "bot_version": version,
                 "bot_cli_cmd": " ".join(cli_cmd),
-                "bot_config_dir": str(home / f".{variant_name}"),
+                "bot_config_dir": str(home / VARIANT_CONFIG_DIR_MAP.get(variant_name, f".{variant_name}")),
             }
         else:
             result = {
@@ -736,7 +745,9 @@ def main():
         sys.exit(1)
 
     # Scan using strategy-appropriate function
-    if install_info.scanning_strategy == "nano":
+    if install_info.scanning_strategy == "cowork":
+        result = scan_cowork(install_info, full=args.full, limit=args.limit)
+    elif install_info.scanning_strategy == "nano":
         result = scan_nano(install_info, full=args.full, limit=args.limit)
     else:
         result = scan_openclaw(install_info, full=args.full, limit=args.limit)
@@ -755,7 +766,7 @@ def main():
 
     # Send report to API if scanner-report-api-key is provided
     if args.scanner_report_api_key:
-        api_result = send_report(result, args.scanner_report_api_key, verify_ssl=not args.no_ssl_verify)
+        api_result = send_report(result, args.scanner_report_api_key, verify_ssl=not args.no_ssl_verify, api_url=args.api_url)
         result["api_report"] = api_result
 
     # Output JSON

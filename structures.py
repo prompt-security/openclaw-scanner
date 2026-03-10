@@ -15,11 +15,11 @@ CliCommand = List[str]
 # Variant Detection
 # =============================================================================
 
-# Supported product names (ordered newest → oldest, then nano variants)
-CLAWDBOT_VARIANT_NAMES = ["openclaw", "moltbot", "clawdbot", "nanobot", "picoclaw"]
+# Supported product names (ordered newest → oldest, then nano variants, then cowork)
+CLAWDBOT_VARIANT_NAMES = ["openclaw", "moltbot", "clawdbot", "nanobot", "picoclaw", "cowork"]
 
 # Scanning strategy: determines which scanning approach to use, based on detected variant
-ScanningStrategy = Literal["openclaw", "nano"]
+ScanningStrategy = Literal["openclaw", "nano", "cowork"]
 
 # Mapping from detected bot variant to scanning strategy to use.
 SCANNING_STRATEGY_MAP: Dict[str, ScanningStrategy] = {
@@ -28,6 +28,17 @@ SCANNING_STRATEGY_MAP: Dict[str, ScanningStrategy] = {
     "clawdbot": "openclaw",
     "nanobot": "nano",
     "picoclaw": "nano",
+    "cowork": "cowork",
+}
+
+# Variants whose CLI binary name differs from the variant name.
+VARIANT_CLI_BINARY_MAP: Dict[str, str] = {
+    "cowork": "claude",
+}
+
+# Variants whose config directory name differs from ".{variant}".
+VARIANT_CONFIG_DIR_MAP: Dict[str, str] = {
+    "cowork": ".claude",
 }
 
 

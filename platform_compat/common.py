@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional
 
-from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES, SCANNING_STRATEGY_MAP
+from structures import CliCommand, ClawdbotInstallInfo, ProcessInfo, SystemInfo, ToolPaths, CLAWDBOT_VARIANT_NAMES, SCANNING_STRATEGY_MAP, VARIANT_CLI_BINARY_MAP, VARIANT_CONFIG_DIR_MAP
 
 
 # Folders that aren't apps - skip these
@@ -293,8 +293,9 @@ def find_bot_cli_only(extra_paths_fn=None) -> Optional[tuple[str, CliCommand]]:
         Tuple of (variant_name, cli_command) or None if no CLI found
     """
     for name in CLAWDBOT_VARIANT_NAMES:
-        extra_paths = extra_paths_fn(name) if extra_paths_fn else None
-        bot_cli_cmd = _find_clawdbot_cli_binary(name, extra_paths)
+        cli_name = VARIANT_CLI_BINARY_MAP.get(name, name)
+        extra_paths = extra_paths_fn(cli_name) if extra_paths_fn else None
+        bot_cli_cmd = _find_clawdbot_cli_binary(cli_name, extra_paths)
         if bot_cli_cmd:
             return (name, bot_cli_cmd)
     return None
@@ -314,9 +315,11 @@ def detect_clawd_install(extra_paths_fn=None) -> Optional[ClawdbotInstallInfo]:
     """
     home = Path.home()
     for name in CLAWDBOT_VARIANT_NAMES:
-        extra_paths = extra_paths_fn(name) if extra_paths_fn else None
-        bot_cli_cmd = _find_clawdbot_cli_binary(name, extra_paths)
-        bot_config_dir = home / f".{name}"
+        cli_name = VARIANT_CLI_BINARY_MAP.get(name, name)
+        extra_paths = extra_paths_fn(cli_name) if extra_paths_fn else None
+        bot_cli_cmd = _find_clawdbot_cli_binary(cli_name, extra_paths)
+        config_dir_name = VARIANT_CONFIG_DIR_MAP.get(name, f".{name}")
+        bot_config_dir = home / config_dir_name
 
         # Both CLI and config dir must exist for valid detection
         if bot_cli_cmd and bot_config_dir.exists():
@@ -334,13 +337,23 @@ def build_install_info_from_cli(bot_cli_cmd: CliCommand) -> Optional[ClawdbotIns
     """
     cmd_str = " ".join(bot_cli_cmd).lower()
 
+    # Build reverse map: CLI binary name → variant name (e.g. "claude" → "cowork")
+    _cli_to_variant = {v: k for k, v in VARIANT_CLI_BINARY_MAP.items()}
+
     name = "openclaw"  # default
     for n in CLAWDBOT_VARIANT_NAMES:
         if n in cmd_str:
             name = n
             break
+    else:
+        # Check reverse map for variants whose binary differs from variant name
+        for cli_bin, variant in _cli_to_variant.items():
+            if cli_bin in cmd_str:
+                name = variant
+                break
 
-    bot_config_dir = Path.home() / f".{name}"
+    config_dir_name = VARIANT_CONFIG_DIR_MAP.get(name, f".{name}")
+    bot_config_dir = Path.home() / config_dir_name
     if not bot_config_dir.exists():
         return None
 
