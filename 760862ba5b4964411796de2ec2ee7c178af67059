@@ -1,0 +1,43 @@
+cowork_scanner.py
+  175a10d9f9ffa6ce 1-377,452-650,652,656-695,697-807,809-860
+  2df11398e912493a 378-451,651,653-655,696,808
+platform_compat/common.py
+  175a10d9f9ffa6ce 11,296-298,318-322,340-342,348-353,355-356
+structures.py
+  175a10d9f9ffa6ce 18-19,22,31-41
+openclaw_usage.py
+  175a10d9f9ffa6ce 28,31,487,509-512,526-527,705-710,724,736,748-750,769
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "2.0.0",
+  "base_commit_sha": "760862ba5b4964411796de2ec2ee7c178af67059",
+  "prompts": {
+    "175a10d9f9ffa6ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ded37192-032c-4e98-b986-1ce59c0aac51",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Amir Barshavit <amir@prompt.security>",
+      "messages": [],
+      "total_additions": 872,
+      "total_deletions": 53,
+      "accepted_lines": 835,
+      "overriden_lines": 0
+    },
+    "2df11398e912493a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73fb676e-a3ea-43bc-baa4-e6f268108943",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "Amir Barshavit <amir@prompt.security>",
+      "messages": [],
+      "total_additions": 105,
+      "total_deletions": 29,
+      "accepted_lines": 80,
+      "overriden_lines": 0
+    }
+  }
+}
